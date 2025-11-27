@@ -14,7 +14,6 @@ import traceback
 
 # 导入标准库
 import concurrent.futures
-import contextlib
 import json
 import logging
 import os
@@ -76,23 +75,10 @@ TASK_DISPLAY_NAMES = {
 
 _TQDM_POSITION = threading.local()
 
-
-class _TaskOutput:
-    def __init__(self):
-        self.buffer: list[str] = []
-
-    def write(self, chunk: str) -> None:
-        if chunk and not chunk.isspace():
-            self.buffer.append(chunk)
-
-    def flush(self) -> None:
-        pass
-
 def _parallel_tqdm(*args, **kwargs):
     pos = getattr(_TQDM_POSITION, "position", None)
     if pos is not None and "position" not in kwargs:
         kwargs["position"] = pos
-    kwargs.setdefault("file", sys.__stdout__)
     return _tqdm_orig(*args, **kwargs)
 
 _tqdm_module.tqdm = _parallel_tqdm
@@ -118,15 +104,11 @@ def _run_task(name: str, position: Optional[int] = None) -> None:
     _parallel_header(name)
     task_cls = _get_task_cls(name)
     LOGGER.info("启动任务：%s", name)
-    buffer = _TaskOutput()
-    with contextlib.redirect_stdout(buffer), contextlib.redirect_stderr(buffer):
-        task = task_cls()
-        task.run()
+    task = task_cls()
+    task.run()
     LOGGER.info("任务完成：%s", name)
     if position is not None:
         del _TQDM_POSITION.position
-    if buffer.buffer:
-        LOGGER.debug(" %s 输出：%s", name, "".join(buffer.buffer).strip())
 
 
 def _run_parallel(names: list[str], start_position: int = 0) -> None:
