@@ -22,26 +22,34 @@ import threading
 import time
 from dataclasses import asdict
 from datetime import datetime
+from typing import Optional
 
 # 导入第三方库
 import tqdm as _tqdm_module
 import yaml
 from tqdm import tqdm as _tqdm_orig
 
+PARALLEL_FLAG = "--parallel"
+
+_TQDM_POSITION = threading.local()
+
+
+def _parallel_tqdm(*args, **kwargs):
+    pos = getattr(_TQDM_POSITION, "position", None)
+    if pos is not None and "position" not in kwargs:
+        kwargs["position"] = pos
+    kwargs.setdefault("file", sys.__stdout__)
+    return _tqdm_orig(*args, **kwargs)
+
+
+_tqdm_module.tqdm = _parallel_tqdm
+_parallel_tqdm.write = _tqdm_orig.write
+_parallel_tqdm.set_lock = _tqdm_orig.set_lock
+tqdm = _parallel_tqdm
+
 # 导入本地应用
 from TASK import __all__ as TASK_CLASSES
 from TASK.TaskBase import require_keys
-
-PARALLEL_FLAG = "--parallel"
-
-# 动态导入所有任务类
-TASK_MODULES = {}
-for TASK_NAME in TASK_CLASSES:
-    try:
-        TASK_MODULE = __import__(f'TASK.{TASK_NAME}', fromlist=[TASK_NAME])
-        TASK_MODULES[TASK_NAME] = getattr(TASK_MODULE, TASK_NAME)
-    except Exception as e:
-        print(f"警告：无法导入任务类 {TASK_NAME}: {e}")
 
 # 读取Config.yaml配置
 with open("YAML/Config.yaml", "r", encoding="utf-8") as f:
