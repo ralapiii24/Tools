@@ -1,0 +1,8 @@
+esn9k:
+  message_contains:
+    - >
+      A feature that requires LAN_ENTERPRISE_SERVICES_PKG license is not installed.
+      System supports honor based licensing so feature will continue to be fully functional.
+      Use 'show license usage <package-name>' to find features using missing license.
+  message_regex:
+    - "LAN_ENTERPRISE_SERVICES_PKG.*not installed"

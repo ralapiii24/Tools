@@ -1,0 +1,9 @@
+diff_ignore:
+  message_contains:
+    - "Cryptochecksum:"
+    - "Last configuration change"
+    - "NVRAM config last updated"
+  message_regex:
+    - "Cryptochecksum:.*"
+    - ".*Last configuration change.*"
+    - ".*NVRAM config last updated.*"
