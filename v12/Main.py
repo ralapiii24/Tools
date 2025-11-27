@@ -72,7 +72,9 @@ def _get_task_cls(name: str):
     return TASK_MODULES[name]
 
 
-def _run_task(name: str, position: int | None = None) -> None:
+from typing import Optional
+
+def _run_task(name: str, position: Optional[int] = None) -> None:
     if position is not None:
         _TQDM_POSITION.position = position
     task_cls = _get_task_cls(name)
