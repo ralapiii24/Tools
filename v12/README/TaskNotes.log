@@ -1,0 +1,452 @@
+概览
+入口流程:Main.py → 预检RuntimeEnvCheck.py → 自更新Updater.py → 执行核心任务APP/Core.py
+主要职责:
+Main.py:入口。先跑环境预检（依赖库 & Playwright 浏览器），通过后才进入后续逻辑。
+##########################################################################################################################################################
+RuntimeEnvCheck.py:环境预检。核查 pyyaml/tqdm/requests/lxml/paramiko/playwright/openpyxl/xlsxwriter 等包，并确认已安装 Playwright
+Chromium。
+失败会写入报告到 REPORT/<YYYYMMDD>_DependencyCheck.log，并退出（阻止更新 & 巡检）。
+支持多个pip镜像源（官方、阿里云、清华），网络可达时自动安装缺失依赖。
+##########################################################################################################################################################
+Updater.py:自更新器。
+读取 YAML/Version.yaml 的 FTP 参数与本地版本，从FTP读取最新版本号与版本目录，必要时下载解压、校验（大小/MD5），备份旧版本并替换，再启动
+APP/Core.py 执行巡检。
+环境变量可覆盖 FTP 连接配置若需更新:递归下载对应远端版本目录 → 校验（大小/MD5，若服务器支持）→ 备份旧文件 →
+替换（保留白名单:Main.py、Updater.py、YAML/Version.yaml）。
+本地升级开关:通过 Config.yaml 中的 settings.enable_local_upgrade 控制是否进行版本升级。
+- false: 禁用本地升级，直接执行本地版本巡检
+- true: 启用本地升级，尝试连接版本服务器进行升级
+文件检查更新（V11）:检查TASK/TaskBase.py而非TASK/Base.py，移除对旧文件名的兼容性检查。
+不论是否更新，最终执行 APP/Core.py。
+##########################################################################################################################################################
+Core.py:多任务巡检（FXOS/FortiGate镜像/Oxidized配置抓取/各类Linux服务器SSH获取CPU内存硬盘指标/Kibana
+ESN9K日志扫描/Flow服务检查/ACL策略分析/服务检查），写入日报与任务明细。
+V10新结构：创建任务日志目录:LOG/<TaskName>/；日报目录:REPORT/。
+依次运行任务并记录结果；按任务生成明细日志（LOG/任务类名/YYYYMMDD-任务显示名.log），并在 REPORT/<YYYYMMDD>巡检日报.log 写入汇总与异常摘要。
+从 YAML/Config.yaml 读取配置；settings.show_progress 控制 tqdm 进度条；所有任务输出统一分级:OK/WARN/CRIT/ERROR。
+每个任务为 BaseTask 子类（V11: BaseTask位于TaskBase.py）:实现 items()（要巡检的对象列表）与 run_single(item)（单对象巡检逻辑）。
+结果对象 Result(level, message, meta) 可带 meta 附加信息（如样例、原始行等）。
+配置验证重构:将具体任务的配置检查从Core.py迁移到各自任务类中，实现单一职责原则。
+##########################################################################################################################################################
+YAML/:
+Config.yaml:所有任务的目标清单、账号口令、阈值、索引规则等运行时配置。
+新增配置项:
+- settings.enable_local_upgrade: 本地版本升级开关（false/true）
+- settings.platform_network_map: 平台网段映射（公共配置，多个任务共用，V11新增）
+  - 格式: {站点名: [网段列表]}，如 HX00: ["10.10.0.0/16"]
+  - 用途: ACLCrossCheckTask和ACLArpCheckTask使用，用于识别各站点的平台网段
+- ACLArpCheckTask: ACL无ARP匹配检查专用配置
+  - ignore_third_octet: 忽略第三段IP列表（86, 88, 108, 153）
+  - 注意: 检测范围使用公共配置settings.platform_network_map，只检测在平台网段内的网络（V11优化）
+- LogRecyclingTask: 日志回收任务配置
+  - force_run_date: 指定运行日期（YYYYMMDD格式，字符串或数字，null表示月底最后一天）
+Version.yaml:自更新器所需 FTP 参数与本地版本号。
+Ignore_alarm.yaml:ES/N9K 日志扫描的忽略规则（包含子串 or 正则）。
+Ignore_DIFF.yaml:DeviceDIFFTask专用忽略规则配置。
+##########################################################################################################################################################
+PipLibrary.bat:Windows 下一键安装依赖并安装 Playwright 的 Chromium。
+依赖库:pyyaml、tqdm、requests、lxml、paramiko、playwright、openpyxl、xlsxwriter。
+##########################################################################################################################################################
+CiscoBase.py（Cisco ACL解析基础模块，V11新增）
+技术栈:Python, 正则表达式, ipaddress, openpyxl, 网络地址计算
+目标:统一ACL解析功能，提供通用的ACL规则解析和Excel处理函数，供多个ACL任务共用
+主要功能:
+- parse_acl: 统一ACL规则解析函数，支持NX-OS CIDR格式和IOS-XE wildcard/host混合格式，解析源/目的网段、协议、端口等信息
+- find_acl_blocks_in_column: 在Excel列中查找ACL块，支持登录ACL结束标记检测（大小写不敏感，匹配包含vty和ip的ip access-list行）
+- extract_acl_rules_from_column: 从Excel列中提取ACL规则列表
+- is_acl_rule: 判断是否为ACL规则行
+- 服务端口解析: service_to_port函数，支持服务名和端口号转换
+使用场景:
+- ACLCrossCheckTask: 使用parse_acl、find_acl_blocks_in_column、extract_acl_rules_from_column
+- ACLArpCheckTask: 使用find_acl_blocks_in_column
+- ACLDupCheckTask: 使用find_acl_blocks_in_column
+优势:
+- 减少代码重复: 统一ACL解析逻辑，一处修改，多处受益
+- 易于扩展: 新增ACL格式支持时，只需在CiscoBase中更新
+- 提升维护性: 统一的解析逻辑，便于测试和调试
+##########################################################################################################################################################
+CodeStyleChecker.py（代码规范检查工具，V11新增）
+技术栈:Python, 正则表达式, 文件系统操作
+目标:按照V11代码规范自动检查所有Python文件，生成详细的检查报告
+检查项:
+- 文件头部结构: 模块说明、导入分类、空行规范
+- 导入规范: 标准库/第三方库/本地应用分类，导入顺序
+- 注释规范: 单行注释替代docstring，类和函数前注释
+- 命名规范: 变量全大写、函数snake_case、类PascalCase、文件名PascalCase
+- 代码结构: 空行规范、缩进规范
+- 代码质量: 未使用导入、重复代码、死代码
+输出: 生成详细的检查报告，列出所有不符合规范的项，便于修复
+使用: 运行CodeStyleChecker.py，自动检查项目根目录下的所有Python文件
+##########################################################################################################################################################
+Patch-v11-0001.py（V11文件重命名补丁脚本，V11新增）
+用途: 删除已重命名的Base.py文件（已重命名为TaskBase.py）
+执行逻辑:
+- 检查TASK/Base.py文件是否存在
+- 如果存在，显示文件大小信息
+- 删除Base.py文件
+- 如果文件不存在，提示无需删除（可能已经迁移完成）
+- 错误处理: 权限不足或其他异常时给出明确提示
+执行顺序: 自动执行（无交互确认）
+适用场景: 从V10升级到V11时，自动清理旧文件
+##########################################################################################################################################################
+ACLCrossCheckTask（N9K&LINKAS ACL交叉检查任务）
+技术栈:openpyxl、ipaddress、正则表达式、网络地址计算、图论算法、Excel样式处理、CiscoBase（V11新增）
+目标:实现跨Sheet的ACL规则匹配检查，识别不同Sheet之间的ACL规则匹配关系，使用多颜色标记系统区分不同类型的匹配规则
+处理逻辑:
+- 输入文件:自动使用当天日期的DeviceBackupTask输出文件（LOG/DeviceBackupTask/{日期}-关键设备配置备份输出EXCEL基础任务.xlsx）
+- 设备分类:自动识别cat1（N9K核心交换机）、cat2（LINKAS接入交换机）、cat6（LINK-DS交换机）设备
+- 规则解析:使用CiscoBase.parse_acl统一解析（V11优化），支持NX-OS CIDR格式和IOS-XE wildcard/host混合格式，解析源/目的网段、协议、端口等信息
+- ACL定界:使用CiscoBase.find_acl_blocks_in_column和extract_acl_rules_from_column统一处理（V11优化）
+- 跨Sheet匹配:实现13个步骤的复杂匹配逻辑（步骤4-13），包括完全匹配、覆盖匹配、包含匹配、平台外覆盖、特殊规则检查等
+- 双向检查:步骤4-10支持双向检查（Sheet A -> Sheet B和Sheet B -> Sheet A方向），确保匹配的完整性
+- 颜色标记:使用多颜色标记系统（绿色、蓝色、橙色、紫色、深黄色）区分不同类型的匹配规则
+- 颜色优先级:绿色和蓝色具有最高优先级，不会被后续步骤覆盖；橙色、紫色、深黄色按优先级顺序标记
+- 自动标记:同一Sheet内相同cat2规则自动标记相同颜色，确保一致性
+输出文件:LOG/ACLCrossCheckTask/{日期}-N9K&LINKAS ACL交叉检查.xlsx
+输出内容:
+- 每个Sheet保留原始配置内容
+- 匹配规则使用不同颜色标记（绿色、蓝色、橙色、紫色、深黄色）
+- 颜色标记说明在染色逻辑文档中详细说明
+13个步骤说明:
+- 步骤4:cat1完全匹配检查（标绿色）- cat1 vs cat2匹配相同（两个Sheet）+ cat1 vs cat1反向匹配 + cat2 vs cat2反向匹配
+- 步骤5:cat1覆盖匹配检查（标绿色）- cat1 vs cat2覆盖（两个Sheet）+ cat1 vs cat1反向匹配 + cat2 vs cat2反向匹配
+- 步骤6:cat2覆盖cat1匹配检查（标绿色）- cat2 vs cat1覆盖（两个Sheet）+ cat1 vs cat1反向匹配 + cat2 vs cat2反向匹配
+- 步骤7:cat6完全匹配检查（标蓝色）- cat6 vs cat2匹配相同（两个Sheet）+ cat6 vs cat6反向匹配相同 + cat2 vs cat2反向匹配相同
+- 步骤8:cat6覆盖匹配检查（标蓝色）- cat6 vs cat2覆盖（两个Sheet）+ cat6 vs cat6反向匹配相同 + cat2 vs cat2反向匹配相同
+- 步骤9:cat2覆盖匹配cat6检查（标蓝色）- cat2 vs cat6覆盖（两个Sheet）+ cat6 vs cat6反向匹配相同 + cat2 vs cat2反向匹配相同
+- 步骤10:cat6-cat1包含匹配（标蓝色）- A.cat6覆盖A.cat2 + A.cat6与B.cat1双向包含/反向匹配 + A.cat2与B.cat2反向匹配 + B.cat1覆盖B.cat2
+- 步骤11:平台外覆盖检查（标橙色）- cat1覆盖cat2规则，源为本平台，目的为非platform_network_map地址
+- 步骤12:特殊规则检查（标紫色）- cat1源地址为本平台地址，目的地址为特殊规则定义IP段地址，同平台cat1覆盖cat2，跨平台cat2反向检查通过
+- 步骤13:特殊地址段检查（标深黄色）- cat2规则源地址和目的地址都在任何Sheet的special_network_map中
+性能优化:
+- 使用预构建索引避免重复计算（cat2反向匹配索引、cat6与cat1包含关系索引、cat1覆盖cat2索引）
+- 优化查找效率（将列表转换为set使用O(1)查找替代O(n)的any()函数）
+- 限制检查范围（组合数超过50000时限制检查前50000个）
+- 文件保存优化（默认只在最后保存一次，提升性能）
+配置说明:
+- 输入文件:自动使用当天日期的DeviceBackupTask输出文件
+- 输出目录:LOG/ACLCrossCheckTask/
+- 任务名称:N9K&LINKAS ACL交叉检查
+- 配置依赖:platform_network_map（平台网段映射，使用公共配置settings.platform_network_map）、special_network_map（特殊网段映射）、special_rule_networks（特殊规则网段列表）
+- 详细染色逻辑说明:参考TASK/ACLCrossCheckTask_染色逻辑说明.md文档
+task_switches:
+  ACLCrossCheckTask: true  # 启用N9K&LINKAS ACL交叉检查
+##########################################################################################################################################################
+ServiceCheckTask（服务检查任务）
+技术栈:Python, SSH, 正则表达式, 系统服务检查
+目标:检查NTP Chronyd和TACACS+ tac_plus服务状态，确保关键服务正常运行
+处理逻辑:SSH连接 → 服务状态检查 → 进程检查 → 端口检查 → 状态解析 → 结果汇总
+Chronyd NTP服务检查:
+- systemctl status chronyd: 检查服务运行状态和运行时间
+- chronyc tracking: 检查NTP同步状态（Reference ID、Stratum、Last offset）
+- ps -ef | grep chronyd: 检查chronyd进程
+- ss -ulpn | grep chronyd: 检查UDP 123端口监听
+- 检查要点: Reference ID不为0.0.0.0，Stratum不为16，Last offset小于1秒
+TACACS+服务检查:
+- systemctl status tac_plus: 检查服务运行状态和运行时间
+- ps -ef | grep tac_plus: 检查tac_plus进程
+- ss -tulnp | grep 49: 检查TCP 49端口监听
+- 检查要点: 服务运行正常，进程存在，端口监听正常
+输出:LOG/ServiceCheckTask/YYYYMMDD-服务检查任务.log（详细检查日志）
+配置说明:复用ESLogstashTask配置，使用相同的SSH认证和服务器列表，避免配置重复
+特点:支持多服务器并行检查，确保关键服务正常运行
+##########################################################################################################################################################
+LogRecyclingTask（日志回收任务）
+技术栈:Python, datetime, os, shutil, zipfile, 文件系统操作
+目标:定期清理和压缩历史日志文件，自动管理LOG、REPORT、UPGRADELOG目录（V10: ACL/DOMAIN/CONFIGURATION已迁移至LOG下对应任务目录）
+执行时机:月底最后一天自动执行（默认规则写死在代码中），或通过Config.yaml配置force_run_date指定执行日期
+处理逻辑:日期判断 → 180天清理 → 规则1删除 → 规则2压缩 → 统计汇总
+180天清理规则（V10新增）:
+- 执行优先级:最高优先级，优先于规则1和规则2执行
+- 清理范围:递归遍历LOG目录下的所有文件（包括所有任务子目录）
+- 清理条件:删除文件名以YYYYMMDD-开头的文件，且文件日期超过180天
+- 文件类型:支持所有文件类型（.log、.xlsx、.zip等）
+- 保护机制:排除今天和昨天的日志，避免与写入冲突
+规则1（删除规则）:
+- 执行条件:月底最后一天执行
+- 保留策略:保留周一、周日、每月1号、31号的文件/目录
+- 删除策略:删除其他日期的文件/目录
+- 保护机制:排除今天和昨天的日志，避免与写入冲突
+- 处理目录（V10新结构）:
+  * LOG目录下的任务子目录中的所有文件（递归遍历）
+  * REPORT目录下的文件
+规则2（压缩规则）:
+- 保留策略:保留本月和上个月的文件/目录
+- 压缩策略:压缩上上个月及更早的文件/目录，同月文件压缩到一个zip包
+- 压缩格式:YYYYMM-月份归档.zip（如202508-月份归档.zip）
+- 压缩位置:压缩包保存在原文件/目录的父目录中（与原文件/目录同级）
+- 删除策略:压缩成功后删除已被压缩的原文件/目录
+- 安全保护:明确排除.zip文件，防止误删过往月份的压缩包
+UPGRADELOG特殊处理:
+- 无条件删除UPGRADELOG目录下的所有文件
+- 不执行规则1和规则2，直接删除
+配置说明:
+- Config.yaml中LogRecyclingTask配置节:
+  * force_run_date: 指定运行日期（YYYYMMDD格式，字符串或数字）
+    - null或不设置: 使用默认规则（月底最后一天执行）
+    - 指定日期: 只在指定日期执行
+- 从settings读取log_dir和report_dir配置
+输出:统计删除项数、压缩项数、错误项数，记录到巡检日报
+特点:支持灵活的日期配置，自动管理历史日志文件，确保存储空间合理使用
+##########################################################################################################################################################
+DeviceBackupTask（关键设备配置备份输出EXCEL基础任务）
+技术栈:openpyxl、正则表达式。
+目标:将N9K ASA设备配置备份并输出为Excel格式，为后续ACL分析提供基础数据。
+处理逻辑:
+设备配置解析:从LOG目录读取设备配置文件，支持智能分组策略；
+策略提取:解析ACL策略配置，提取关键信息；
+配置截取优化:根据设备类别智能截取相关配置段，减少冗余信息；
+Excel输出:按设备类型和站点生成Sheet，包含设备配置和策略信息。
+输入文件:LOG目录下的设备配置文件（LOG/OxidizedTask/OxidizedTaskBackup/）
+输出文件:LOG/DeviceBackupTask/{日期}-关键设备配置备份输出EXCEL基础任务.xlsx（V10新结构：从ACL/SourceACL迁移）
+设备分类规则:
+- cat1: N9K核心交换机（按站点分组）
+- cat2: LINKAS接入交换机（按站点分组）
+- cat3: ASA防火墙（按站点分组）
+- cat4: LINK-DS交换机（统一到LINKDS工作表）
+- cat5: BGP设备（统一到BGP工作表）
+配置截取规则:
+- NXOS N9K:从"! show running-config"开始截取
+- IOS-XE:从"! Last configuration change"开始截取  
+- ASA FW:从"ASA Version"开始截取
+输出:生成标准化的ACL配置Excel文件，供其他ACL分析任务使用。
+##########################################################################################################################################################
+DeviceDIFFTask（关键设备配置按周期DIFF审计）
+自动选日期做 DIFF
+日 DIFF（每天）:今天 vs 昨天；
+周 DIFF（仅周日执行）:今天(周日) vs 本周一；若周一文件不存在，则从周一往后顺延到周六，取本周最早有文件的那天。输出名包含"周DIFF"；
+月 DIFF（仅月末执行）:今天(当月最后一天) vs 本月 1 号；若 1 号不存在，则从 1 号往后顺延到昨日，取本月最早有文件的那天。输出名包含"月DIFF"。
+读取两期"基础任务 Excel"并对比
+输入文件目录:LOG/DeviceBackupTask/（V10新结构：从ACL/SourceACL迁移）
+文件名模式:{YYYYMMDD}-关键设备配置备份输出EXCEL基础任务.xlsx
+只要有改动，就生成 unified diff 行列表（含 ---/+++/@/@、加号行、减号行、上下文行）。
+着色:+ 行绿色、- 行红色，其它行（---/+++/@/@/空格开头）黑色。
+输出
+输出目录:LOG/DeviceDIFFTask/（V10新结构：从ACL/DeviceDIFFTask迁移）
+文件名:
+日:{今天}-关键设备DIFF.xlsx
+周:{今天}-周DIFF-关键设备DIFF.xlsx
+月:{今天}-月DIFF-关键设备DIFF.xlsx
+配置说明:支持Ignore_DIFF.yaml忽略规则
+##########################################################################################################################################################
+ACLArpCheckTask（ACL 无 ARP 匹配检查）
+技术栈:openpyxl、ipaddress、正则表达式、网络地址计算、xlsxwriter、CiscoBase（V11新增）。
+目标:识别源/目的两端均无 ARP（ARP 表中仅统计非 INCOMPLETE）的 ACL 规则。
+处理逻辑:
+读取ARP:解析 ARP.log，提取有 MAC 的 IP 作为"有 ARP"；INCOMPLETE 视为"无 ARP"。
+解析ACL:使用CiscoBase统一解析（V11优化），支持 NX-OS CIDR、IOS-XE host/wildcard/混写、ASA any 关键字，提取源/目的网段。
+ACL定界:使用CiscoBase.find_acl_blocks_in_column统一处理（V11优化）。
+多端口支持:支持eq www 443、eq 3306 3366等多端口token解析。
+特殊网段处理:支持配置特殊网段列表，特殊网段不参与 ARP 匹配检查。
+判定逻辑:根据源/目的是否为 any、特殊网段等情况，采用不同的匹配策略。
+多设备处理:按工作表逐个处理设备配置，进度显示为N/N（与ACLDupCheckTask一致）。
+输出:生成 {YYYYMMDD}-ACL无ARP匹配检查.xlsx，含 Sheet/Device/Row/Rule/SrcNetwork/DstNetwork 明细。
+红色标记:无 ARP 匹配且非特殊网段的网络地址标红显示。
+配置说明:
+- 输入文件:自动使用当天日期的ASA备份文件（LOG/DeviceBackupTask/）
+- ARP日志文件:CHECKRULE/ARP.log
+- 输出目录:LOG/ACLArpCheckTask/（V10新结构：从ACL/ACLArpCheckTask迁移）
+- 脚本输出目录:LOG/ACLArpCheckTask/ConfigureOutput/（V10新结构：从CONFIGURATION/ACLArpCheckTask/日期迁移，每次任务自动清空）
+- 任务名称:ACL无ARP匹配检查
+- 忽略第三段为86,88,108,153的IP（X.X.86.X, X.X.88.X, X.X.108.X, X.X.153.X 全部忽略）
+- 检测范围:只检测在platform_network_map（公共配置settings.platform_network_map）内的网络，不在平台网段内的网络不检测（V11优化）
+- 脚本输出:操作脚本和回退脚本，根据原始ACL定义是否包含extended关键字自动决定是否添加extended（支持cat1不带extended和cat2带extended的区分，V11优化）
+- 汇总输出控制:通过Config.yaml的enable_summary_output开关控制汇总统计输出，默认关闭
+- 依赖库:xlsxwriter
+task_switches:
+  ACLArpCheckTask: true  # 启用 ACL 无 ARP 匹配检查
+##########################################################################################################################################################
+FXOSWebTask（FXOS WEB 巡检）
+技术栈:Playwright（Chromium，无头模式），自动忽略自签名/不可信证书。
+目标:对 fxos.devices 中的每个 FXOS 管理地址进行自动登录验证。
+交互细节:支持自动模拟 Enter/Tab/Continue/Proceed/OK/确认/确定 点击，处理浏览器安全/提示对话；登录后等待指定 XPath 成功标志。
+输出:每台设备 "登录成功/失败"。
+输出级别:登录成功为OK级别，登录失败为WARN级别（降低网络临时故障或设备暂时不可访问的告警级别）。
+##########################################################################################################################################################
+MirrorFortiGateTask（镜像飞塔防火墙巡检）
+技术栈:Paramiko SSH。
+指标:
+日志盘占用:diagnose sys logdisk usage → 解析 used/total MB → 与 fortigate.thresholds.disk_percent 比较（默认
+WARN≥60，CRIT≥80）。
+CPU/内存/Uptime:get system performance status；如遇 --More-- 分页或缺失 Uptime，则切换交互分页（空格翻页）或再跑 get system
+status 兜底；
+CPU:由 idle% 推算 used%
+MEM:解析 used( xx % )
+Uptime:支持多种格式解析（天/小时/分钟混排、中文/英文/冒号/空格等）。
+输出:针对每台主机分别给出"日志盘 / CPU / 内存 / 启动时间"的分级结果；解析失败会给 ERROR。
+##########################################################################################################################################################
+Core.py（主调度器）
+技术栈:Python, YAML配置, 动态导入, 文件IO, 进度显示
+目标:统一调度所有巡检任务，管理任务开关，生成日报和日志
+处理逻辑:配置加载 → 任务开关检查 → 动态任务创建 → 任务执行 → 结果汇总 → 报告生成
+REPORT文件格式优化:
+- 添加时间隔离符号：################################################################################
+- 时间戳格式：#################### YYYY-MM-DD HH:MM:SS 运行 ####################
+- 任务列表格式化：启用的任务每行一个，禁用的任务同行显示
+- 最新运行追加到顶部：新内容在文件顶部，历史记录在底部
+- 保持历史记录：每次运行保留之前的记录，便于查看历史
+输出:REPORT/日期巡检日报.log（每日汇总报告），LOG/任务类名/YYYYMMDD-任务显示名.log（单任务详细日志，V10新结构）
+配置说明:支持task_switches任务开关控制，自动创建目录结构
+##########################################################################################################################################################
+ESBaseTask（三类 Linux 主机健康）需调用LinuxServerBase.py（Linux服务器巡检基类，V11从Base.py拆分）
+适用:ESLogstashTask / ESBaseTask / ESFlowTask
+通用检查:
+根分区占用:df -h 解析 / 的 used%，与 servers.thresholds.disk_percent 比较（默认 WARN≥50，CRIT≥80）。
+内存占用:free -m 解析 used/total 推算占用率，各类型有不同阈值:
+LOGSTASH:WARN≥50，CRIT≥80
+ES/FLOW:WARN≥80，CRIT≥90
+##########################################################################################################################################################
+ESFlowTask 额外检查:
+关键端口:netstat -tulnp 寻找 5601/9200/9300/4739/2055/6343 等（来自 flow_checks.require_ports，并有兜底端口集合）。
+容器状态:docker ps --format "{{.Names}} {{.Status}}"，要求 opt-kibana-1、elastiflow-logstash、elastiflow-elasticsearch
+等容器处于 Up；
+若 docker 失败，会回退到端口命中结果作为提示。
+ES 索引大小:/_cat/indices?v 过滤 index_prefix（默认 elastiflow-4.0.1-），解析末列大小（支持 K/M/G/T），超过
+index_size_limit_bytes（默认 1GiB）则记录。
+Segments 行数:/_cat/segments?v 针对非今昨的索引，若行数 > segment_max_non_recent（默认 3）则 WARN。
+##########################################################################################################################################################
+ESN9KLogInspectTask（Kibana 上 Cisco N9K 日志异常扫描）
+目标:在一组 kibana_bases 中挑选可用的 Kibana（调用 /api/status），然后经 Kibana 反代查询 ES:
+索引匹配:index_pattern: "*-n9k-*-*"
+时间范围:time_gte: now-3d 到 time_lt: now（可改）
+取数方式:_search?scroll 滚动查询，字段 @timestamp 与 message。
+告警提取:从 message 中解析 Cisco 标准样式的严重级别（形如 %...-<sev>-... 里的 <sev> 数字）；
+映射:sev<=2 → CRITICAL，sev==3 → ERROR，sev==4 → WARN，sev>=5 或无 sev → OK。
+忽略列表:按 Ignore_alarm.yaml 的 message_contains 与 message_regex 过滤噪声。
+输出:统计 scanned/matched，给出最严重等级与最多 10 条样例（时间戳、sev、sev 文本、等级、截断消息）。
+##########################################################################################################################################################
+ASACompareTask（主备防火墙配置对比）
+工作流程包括:扫描LOG目录查找设备文件，提取interface Port-channel到failover的配置段，对比算法过滤重新排序差异，为缩进行显示父级配置，生成带颜色编码的Excel报告
+生成以日期命名的Excel文件，每个HX站点对应一个Sheet，包含站点信息、配置差异详情、差异统计和配置对比结果，为缩进行的配置显示父级配置。
+将对比结果填充到Excel中，包括内容不同的配置行、仅在FW01-FRP中存在的配置、仅在FW02-FRP中存在的配置，并添加统计信息。
+输入文件:LOG/OxidizedTask/OxidizedTaskBackup/（V10新结构：从LOG/日期/OxidizedTaskBackup迁移）
+输出文件:LOG/ASACompareTask/{日期}-ASA防火墙主备对比检查.xlsx（V10新结构：从ACL/ASACompareTask迁移）
+##########################################################################################################################################################
+ACLDupCheckTask（ACL重复检查任务）
+技术栈:openpyxl、ipaddress、正则表达式、图论算法、CiscoBase（V11新增）。
+目标:分析ACL规则间的覆盖关系，识别可回收的重复策略。
+处理逻辑:
+解析ACL规则:使用CiscoBase统一解析（V11优化），支持NX-OS CIDR格式和IOS-XE wildcard/host混合格式；
+ACL定界:使用CiscoBase.find_acl_blocks_in_column统一处理（V11优化）；
+覆盖关系检测:分析规则A是否覆盖规则B（动作相同、协议匹配、端口匹配、源/目的网段包含关系）；
+图论算法:使用连通分量算法对覆盖规则进行分组；
+可视化标注:每组使用不同颜色标记，最大规则（不被覆盖的）标红；
+统计报告:生成详细的覆盖组统计和可回收策略数量。
+输入文件:LOG/DeviceBackupTask/{日期}-关键设备配置备份输出EXCEL基础任务.xlsx（V10新结构：从ACL/SourceACL迁移）
+输出文件:LOG/ACLDupCheckTask/{日期}-大段覆盖包含明细ACL检查.xlsx（V10新结构：从ACL/ACLDupCheckTask迁移）
+输出:统计覆盖组数量、保留规则数、可回收规则数，生成带颜色标注的Excel报告和Report工作表。
+统计指标说明:
+- 覆盖组数量:具有覆盖关系的规则分组数（每组包含相互覆盖的规则）
+- 保留规则数:每组中最大规则数量（红色标记，建议保留，覆盖其他规则）
+- 可回收规则数:每组中被覆盖的规则数量（默认字体，可删除，被其他规则覆盖）
+- 参与分析规则数:所有参与覆盖分析的规则总数（不包括无覆盖关系的规则）
+输出优化:
+- 移除LOG和REPORT中的JSON格式元数据，只保留清晰的中文描述
+- 优化输出信息，使统计指标含义更加清晰易懂
+- 提高用户对ACL覆盖分析结果的理解和使用效率
+配置说明:
+- 输入文件:自动使用当天日期的ASA备份文件（LOG/DeviceBackupTask/）
+- 输出目录:LOG/ACLDupCheckTask/（V10新结构：从ACL/ACLDupCheckTask迁移）
+- 任务名称:大段覆盖包含明细ACL检查
+- 汇总输出控制:通过Config.yaml的enable_summary_output开关控制汇总统计输出，默认关闭（V10新增）
+- 所有配置已固定在Python文件中，无需额外配置
+task_switches:
+  ACLDupCheckTask: true  # 启用ACL重复检查任务
+##########################################################################################################################################################
+ASADomainCheckTask（ASA域名提取和检测任务）
+技术栈:socket、正则表达式、DNS解析、文件IO。
+目标:从 Excel 源文件中提取站点（仅 FW01 列），进行域名检测与标色，并支持基于手工清单的脚本生成
+处理逻辑:
+- 站点来源: 读取 LOG/DeviceBackupTask/{日期}-关键设备配置备份输出EXCEL基础任务.xlsx 的各站点 sheet（V10新结构：从ACL/SourceACL迁移）
+- 域名提取: 仅扫描 FW01(-FRP) 列，支持完整域名与子串提取，跳过 URL/NAT/host-range-subnet/domain-name
+- DNS检测: 先加载本地缓存，未命中再解析；DNS不可达降级执行（仅缓存）
+- Excel标色: 保留源样式，失败标红并按场景底色区分；对象组/绑定行联动标色
+- 稳健输出: 每次任务强制删除并重建输出Excel，确保与源Excel一致（V10优化）
+- 输出优化: 单站点输出合并为单行汇总，静默中间OK日志（V10优化）
+脚本生成（手工回收分支）:
+- 域名来源: 仅使用 CHECKRULE/ManualDomainRecovery.log（V10新结构：从DOMAIN迁移，开启 use_manual_source_first 时且非空）
+- 输出: LOG/ASADomainCheckTask/ConfigureOutput/{日期}-{SITE}-回退脚本.log / 操作脚本.log（V10新结构：从CONFIGURATION/ASADomainCheckTask/日期迁移，每次任务自动清空ConfigureOutput目录）
+- 逻辑: 先从回退脚本（按 FW01 列标色顺序）提取，再派生操作脚本（解绑→删除，保持顺序一致）
+DNS 缓存（统一文件）:
+- 路径: CHECKRULE/DNSLocalCache.log（V10新结构：从DOMAIN迁移），三态：S=特殊白名单、T=临时成功、D=失败
+- 行为: 月初自动清理 T；D→T→S 自动晋级；S 优先且不被失败覆盖
+日志优化:
+- 支持 settings.suppress_ok_logs 抑制 OK 级日志
+- 静默忽略无FW01表头的 sheet
+- 静默"已从源Excel初始化输出文件"OK日志（V10优化）
+输出文件:
+- LOG/ASADomainCheckTask/{日期}-ASA域名提取及检测任务.xlsx（V10新结构：从DOMAIN/ASADomainCheckTask迁移）
+- LOG/ASADomainCheckTask/ConfigureOutput/{日期}-ManualDomainRecovery.xlsx（模板标色，V10新结构：从CONFIGURATION迁移）
+##########################################################################################################################################################
+ASADomainCheckTask（ASA 域名提取及检测任务）
+技术栈:Python, 正则表达式, DNS解析, Excel处理, 文件IO, 缓存管理
+目标:从ASA FW配置中提取FQDN域名，进行DNS解析检测，生成按平台分组的Excel报告
+处理逻辑:缓存加载 → 站点扫描 → 域名提取 → 缓存优先DNS检测 → 失败跟踪 → Excel报告生成
+日期逻辑:自动扫描LOG目录，按日期分组处理，月初第一天清空临时缓存
+输出:LOG/ASADomainCheckTask/{日期}-ASA域名提取及检测任务.xlsx（V10新结构：从DOMAIN/ASADomainCheckTask迁移）
+站点识别:使用与ASACompareTask相同的站点提取规则，确保一致性
+缓存机制:
+- CHECKRULE/DNSLocalCache.log（V10新结构：从DOMAIN迁移）: 统一DNS缓存文件，三态：S=特殊白名单、T=临时成功、D=失败
+- 优先使用缓存，缓存未命中时查询DNS服务器
+- 自动去重：添加域名时检测重复，避免重复写入
+- 缓存文件统一放在CHECKRULE目录下，便于管理（V10新结构）
+失败跟踪:
+- 每天失败域名保存到LOG/日期/DNSQueryFalse.log（V10: 已废弃，不再使用）
+- 对比前一天失败域名，找出恢复的域名（V10: 已废弃，不再使用）
+- 恢复域名保存到LOG/日期/DNSQueryDontDelete.log（V10: 已废弃，不再使用）
+- 恢复域名添加到特殊缓存，REPORT中WARN提示
+配置说明:所有配置硬编码在Python文件中，自动扫描LOG目录，支持fw01-frp和fw02-frp文件格式
+##########################################################################################################################################################
+OxidizedTask（Oxidized设备配置备份任务）
+技术栈:Python, requests, lxml, XPath, HTML解析, 文件IO, zipfile压缩
+目标:从Oxidized服务器备份设备配置，支持多服务器并行处理，实现设备级和节点级统计分离
+处理逻辑:状态检查 → 设备分组 → 配置获取 → 本地保存 → 统计汇总 → 日志压缩
+状态检查优化:
+- 使用XPath检查Last Status：//*[@id='nodesTable']/tbody/tr/td[4]/div
+- 检查div元素的class属性（success/no_connection/never/failing）
+- 备用方案：检查内部span[@style="visibility: hidden"]元素内容
+- no_connection状态：直接标记为WARN，跳过备份请求，不需要检查URL
+- success状态：尝试备份配置，但需检查URL响应内容是否为"node not found"
+- never/failing状态：直接标记为WARN，跳过备份请求
+- 其他状态：标记为WARN，跳过备份请求
+- 响应内容检查：检测"node not found"响应，标记为WARN
+- 避免无效请求，提升任务执行效率
+架构重构优化:
+- 设备级统计：ERROR和OK计数只涉及备份设备，不包含节点统计
+- 节点级统计：WARN计数只涉及备份节点失联，不包含设备失败
+- LOG输出：只记录每个设备的ERROR和OK，不记录节点统计信息
+- REPORT输出：只统计节点ERROR和OK数量，不显示具体设备信息
+- 设备过滤：支持基于前缀的设备过滤，可配置忽略特定设备（如HX07、TWIDC、FG）
+- 日志压缩：自动将当日所有.log文件压缩为Oxidized_设备配置备份-{日期}.zip
+配置验证:
+- 验证OxidizedTask专用配置：检查base_urls配置项
+- 验证设备过滤配置：检查ignore_device_prefixes配置项
+- 独立配置验证：在任务初始化时验证所需配置，不依赖Core.py
+输出:LOG/OxidizedTask/OxidizedTaskBackup/YYYYMMDD-设备名.log（成功设备配置文件，V10新结构：从LOG/日期/OxidizedTaskBackup迁移），压缩后生成YYYYMMDD-OxidizedTaskBackup.zip文件
+配置说明:支持多服务器配置，自动处理设备分组和状态检查，支持设备过滤和日志压缩
+##########################################################################################################################################################
+ACLNotUsedCheckTask（ACL未使用策略检查任务）【已废止】
+技术栈:openpyxl、字符串匹配、PatternFill样式。
+目标:根据规则文件标记未使用的ACL策略，识别可删除的垃圾策略。
+处理逻辑:
+规则文件读取:从CHECKRULE目录读取黄色和绿色标记规则；
+双色标记系统:黄色标记包含32位策略且无ARP策略，绿色标记未使用网段遗留垃圾数据策略；
+字符串匹配:使用简单的字符串包含匹配（后续版本将优化为精确IP匹配）；
+多设备处理:按工作表逐个处理设备配置，进度显示为N/N（与ACLDupCheckTask一致）；
+统计报告:生成按Sheet和全局的标记统计。
+输入文件:ACL\SourceACL\20251009-LINKAS N9K ASA含策略类设备配置备份输出EXCEL基础任务.xlsx
+输出文件:ACL\ACLNotUsedCheckTask\日期-ACL未使用策略检查.xlsx
+规则文件:CHECKRULE\SourceCheckIP.log（黄色规则）、CHECKRULE\NoUseIPRange.log（绿色规则）
+输出:统计黄色和绿色标记数量，生成带颜色标注的Excel文件和详细统计日志。
+废止说明:该任务功能已被ACLArpCheckTask继承，ACLArpCheckTask提供更精确的ARP匹配检测和更灵活的标色方案。
+ACLArpCheckTask通过精确的网络地址计算和ARP表匹配，能够更准确地识别无ARP匹配的ACL规则，
+同时支持特殊网段配置和多端口token解析，功能更加强大和准确。
+配置说明（已废止，仅供参考）:
+- 输入文件:自动使用当天日期的ASA备份文件
+- 输出目录:ACL/ACLNotUsedCheckTask/（V10: 已迁移至LOG/ACLArpCheckTask/）
+- 规则目录:CHECKRULE/
+- 任务名称:ACL未使用策略检查
+- 所有配置已固定在Python文件中，无需额外配置
+task_switches:
+  ACLNotUsedCheckTask: false  # 已废止，功能由ACLArpCheckTask继承
+##########################################################################################################################################################
