@@ -24,12 +24,11 @@ def clear_position() -> None:
         del _POSITION.value
 
 
-def create_progress(*args: Iterable[Any], **kwargs: Any):
-    pos = kwargs.get("position")
-    if pos is None:
-        pos = get_position()
-        if pos is not None:
-            kwargs["position"] = pos
+def create_progress(*args: Iterable[Any], position_offset: int = 0, **kwargs: Any):
+    kwargs.pop("position", None)
+    pos = get_position()
+    if pos is not None:
+        kwargs["position"] = pos + position_offset
     kwargs.setdefault("file", sys.__stdout__)
     return _tqdm_orig(*args, **kwargs)
 
