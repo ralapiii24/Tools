@@ -142,6 +142,8 @@ def _run_parallel(names: list[str], start_position: int = 0) -> None:
 
 
 def _parallel_inspection() -> None:
+    logging.getLogger("paramiko").setLevel(logging.WARNING)
+    logging.getLogger("asyncio").setLevel(logging.WARNING)
     initial = ["FXOSWebTask", "OxidizedTask", "ESLogstashTask"]
     _run_parallel(initial, start_position=0)
 
