@@ -1,0 +1,13 @@
+updater:
+  ftp_host: 10.6.80.7
+  ftp_pass: 12345678
+  ftp_passive: false
+  ftp_port: 21
+  ftp_read_timeout: 120
+  ftp_timeout: 30
+  ftp_user: coderoot
+  remote_latest_file: /latestversion.yaml
+  remote_versions_root: /
+  retry_delay_sec: 2
+  retry_times: 3
+version: v1
