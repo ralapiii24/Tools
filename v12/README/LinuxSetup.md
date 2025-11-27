@@ -7,11 +7,7 @@
 
 ## 快速安装依赖（推荐）
 1. 进入仓库根目录：`cd /path/to/Inspection/v12`
-2. 执行脚本：`bash APP/PipLibrary.sh`
-   - 脚本会按顺序升级 pip、安装所有 Python 库，并执行 `playwright install-deps` + `playwright install chromium`；
-   - 如遇权限提示，可考虑在非 `root` 的虚拟环境中运行，或用 `python3 -m pip install --user ...`。
-
-## 手动安装步骤（脚本不可用时）
+2. 手动执行以下命令（按顺序）：
 ```bash
 python3 -m ensurepip --upgrade
 python3 -m pip install --upgrade pip
@@ -22,7 +18,7 @@ python3 -m playwright install chromium
 
 ## 启动巡检
 1. 依赖安装完成后，运行 `python3 Main.py` 启动程序；
-2. `Main.py` 会先执行 `APP/RuntimeEnvCheck.py`，进一步检查/补齐依赖，再调用 `APP.Updater.check_update_then_run()` 进入常规流程；
+2. `Main.py` 直接封装核心巡检调度逻辑，部署时不再依赖 APP 目录，本地依赖需在安装阶段准备；
 3. 如需排查 Playwright 依赖，可以单独运行 `python3 -m playwright install-deps` 确保系统库存在。
 
 ## 其他提示

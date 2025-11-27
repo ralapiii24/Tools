@@ -1,23 +1,11 @@
 概览
-入口流程:Main.py → 预检RuntimeEnvCheck.py → 自更新Updater.py → 执行核心任务APP/Core.py
+入口流程:Main.py
 主要职责:
-Main.py:入口。先跑环境预检（依赖库 & Playwright 浏览器），通过后才进入后续逻辑。
+Main.py:入口。服务端部署后直接运行 `Main.py` 中的巡检调度逻辑，依赖在部署阶段统一准备，APP 目录已移除。
 ##########################################################################################################################################################
-RuntimeEnvCheck.py:环境预检。核查 pyyaml/tqdm/requests/lxml/paramiko/playwright/openpyxl/xlsxwriter 等包，并确认已安装 Playwright
-Chromium。
-失败会写入报告到 REPORT/<YYYYMMDD>_DependencyCheck.log，并退出（阻止更新 & 巡检）。
-支持多个pip镜像源（官方、阿里云、清华），网络可达时自动安装缺失依赖。
-##########################################################################################################################################################
-Updater.py:自更新器。
-读取 YAML/Version.yaml 的 FTP 参数与本地版本，从FTP读取最新版本号与版本目录，必要时下载解压、校验（大小/MD5），备份旧版本并替换，再启动
-APP/Core.py 执行巡检。
-环境变量可覆盖 FTP 连接配置若需更新:递归下载对应远端版本目录 → 校验（大小/MD5，若服务器支持）→ 备份旧文件 →
-替换（保留白名单:Main.py、Updater.py、YAML/Version.yaml）。
-本地升级开关:通过 Config.yaml 中的 settings.enable_local_upgrade 控制是否进行版本升级。
-- false: 禁用本地升级，直接执行本地版本巡检
-- true: 启用本地升级，尝试连接版本服务器进行升级
-文件检查更新（V11）:检查TASK/TaskBase.py而非TASK/Base.py，移除对旧文件名的兼容性检查。
-不论是否更新，最终执行 APP/Core.py。
+已移除模块（服务端部署后停用）
+RuntimeEnvCheck.py:依赖预检脚本，原用于校验并自动安装缺失包，目前已停止运行，依赖需手动准备。
+Updater.py:FTP自更新器，部署版本由服务端统一管理，撤掉本地更新逻辑，运行主调度器即完成巡检。
 ##########################################################################################################################################################
 Core.py:多任务巡检（FXOS/FortiGate镜像/Oxidized配置抓取/各类Linux服务器SSH获取CPU内存硬盘指标/Kibana
 ESN9K日志扫描/Flow服务检查/ACL策略分析/服务检查），写入日报与任务明细。
@@ -44,8 +32,7 @@ Version.yaml:自更新器所需 FTP 参数与本地版本号。
 Ignore_alarm.yaml:ES/N9K 日志扫描的忽略规则（包含子串 or 正则）。
 Ignore_DIFF.yaml:DeviceDIFFTask专用忽略规则配置。
 ##########################################################################################################################################################
-PipLibrary.bat:Windows 下一键安装依赖并安装 Playwright 的 Chromium。
-依赖库:pyyaml、tqdm、requests、lxml、paramiko、playwright、openpyxl、xlsxwriter。
+PipLibrary 脚本已移除，依赖安装请参照 README/LinuxSetup.md 手动执行（包含 pyyaml、tqdm、requests、lxml、paramiko、playwright、openpyxl、xlsxwriter 等）。
 ##########################################################################################################################################################
 CiscoBase.py（Cisco ACL解析基础模块，V11新增）
 技术栈:Python, 正则表达式, ipaddress, openpyxl, 网络地址计算

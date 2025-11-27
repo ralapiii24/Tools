@@ -4,7 +4,6 @@ settings:
   debug: false          # 调试模式开关 - 所有TASK
   log_dir: LOG          # 日志目录 - 所有TASK
   report_dir: REPORT    # 报告目录 - 所有TASK
-  enable_local_upgrade: true  # 本地版本升级开关 - Updater.py调用
   # 平台网段映射配置 - 公共配置，多个任务共用
   # Sheet名称（站点名）到平台网段的映射，用于识别各站点的平台网段
   platform_network_map:
@@ -72,7 +71,7 @@ progress:              # 进度条配置 - base.py调用
   suffix: "==="          # 后缀 - 所有TASK
   elapsed_label: "当前耗时"        # 耗时标签 - 所有TASK
   remaining_label: "剩余耗时"  # 剩余时间标签 - 所有TASK
-# 环境依赖配置 - RuntimeEnvCheck.py调用
+# 环境依赖配置（供部署参考）
 dependencies:
   yaml: pyyaml          # YAML解析库 - 所有TASK
   tqdm: tqdm           # 进度条库 - 所有TASK
@@ -82,11 +81,11 @@ dependencies:
   playwright: playwright  # Web自动化库 - FXOSWebTask
   openpyxl: openpyxl  # Excel操作库 - DeviceBackupTask, DeviceDIFFTask, ASACompareTask, ACL任务
   xlsxwriter: xlsxwriter  # Excel写入库 - ACLArpCheckTask
-pip_mirrors:           # pip镜像源 - RuntimeEnvCheck.py调用
+pip_mirrors:           # pip镜像源（供手动安装参考）
   - https://pypi.org/simple/                    # 官方源
   - https://mirrors.aliyun.com/pypi/simple/     # 阿里云镜像
   - https://pypi.tuna.tsinghua.edu.cn/simple/   # 清华镜像
-check:                 # 网络检查配置 - RuntimeEnvCheck.py调用
+check:                 # 网络检查配置（供手动验证）
   timeout: 10         # 网络检查超时(秒)
   retry_times: 3      # 重试次数
 # FXOS设备配置 - FXOSWebTask调用
