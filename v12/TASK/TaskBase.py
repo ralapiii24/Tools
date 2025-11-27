@@ -10,7 +10,7 @@ from typing import Any, Dict, Iterable, Optional, Tuple
 # 导入第三方库
 import paramiko
 import yaml
-from tqdm import tqdm
+from progress import tqdm
 
 # 读取配置
 with open("YAML/Config.yaml", "r", encoding="utf-8") as fileHandle:

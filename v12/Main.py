@@ -18,7 +18,6 @@ import json
 import logging
 import os
 import sys
-import threading
 import time
 from dataclasses import asdict
 from datetime import datetime
@@ -27,31 +26,20 @@ from typing import Optional
 PARALLEL_FLAG = "--parallel"
 
 # 导入第三方库
-import tqdm as _tqdm_module
 import yaml
-from tqdm import tqdm as _tqdm_orig
 
-_TQDM_POSITION = threading.local()
+from progress import (
+    clear_position,
+    patch_tqdm_module,
+    set_position,
+    write as tqdm_write,
+)
 
-
-def _parallel_tqdm(*args, **kwargs):
-    pos = getattr(_TQDM_POSITION, "position", None)
-    if pos is not None and "position" not in kwargs:
-        kwargs["position"] = pos
-    kwargs.setdefault("file", sys.__stdout__)
-    return _tqdm_orig(*args, **kwargs)
-
-
-_tqdm_module.tqdm = _parallel_tqdm
-_parallel_tqdm.write = _tqdm_orig.write
-_parallel_tqdm.set_lock = _tqdm_orig.set_lock
-tqdm = _parallel_tqdm
+patch_tqdm_module()
 
 # 导入本地应用
 from TASK import __all__ as TASK_CLASSES
 from TASK.TaskBase import require_keys
-
-# 读取Config.yaml配置
 with open("YAML/Config.yaml", "r", encoding="utf-8") as f:
     CONFIG = yaml.safe_load(f)
 
@@ -97,12 +85,12 @@ from typing import Optional
 
 def _parallel_header(name: str) -> None:
     display = TASK_DISPLAY_NAMES.get(name, name)
-    _parallel_tqdm.write(f"\n=== 执行 {display} ===\n")
+    tqdm_write(f"\n=== 执行 {display} ===\n")
 
 
 def _run_task(name: str, position: Optional[int] = None) -> None:
     if position is not None:
-        _TQDM_POSITION.position = position
+        set_position(position)
     _parallel_header(name)
     task_cls = _get_task_cls(name)
     LOGGER.info("启动任务：%s", name)
@@ -110,7 +98,7 @@ def _run_task(name: str, position: Optional[int] = None) -> None:
     task.run()
     LOGGER.info("任务完成：%s", name)
     if position is not None:
-        del _TQDM_POSITION.position
+        clear_position()
 
 
 def _run_parallel(names: list[str], start_position: int = 0) -> None:

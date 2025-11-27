@@ -6,7 +6,7 @@ from datetime import datetime
 
 # 导入第三方库
 from openpyxl import Workbook
-from tqdm import tqdm
+from progress import tqdm
 
 # 导入本地应用
 from .TaskBase import BaseTask, Level, extract_site_from_device, BAR_FORMAT, SHOW_PROGRESS

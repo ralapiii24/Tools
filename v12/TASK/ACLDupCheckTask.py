@@ -750,7 +750,7 @@ class ACLDupCheckTask(BaseTask):
             return
 
         # 使用父类的进度条处理
-        from tqdm import tqdm
+        from progress import tqdm
         from .TaskBase import BAR_FORMAT, SHOW_PROGRESS
 
         progress = tqdm(
