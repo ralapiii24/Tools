@@ -24,10 +24,12 @@ def clear_position() -> None:
         del _POSITION.value
 
 
-def tqdm(*args: Iterable[Any], **kwargs: Any):
-    pos = get_position()
-    if pos is not None and "position" not in kwargs:
-        kwargs["position"] = pos
+def create_progress(*args: Iterable[Any], **kwargs: Any):
+    pos = kwargs.get("position")
+    if pos is None:
+        pos = get_position()
+        if pos is not None:
+            kwargs["position"] = pos
     kwargs.setdefault("file", sys.__stdout__)
     return _tqdm_orig(*args, **kwargs)
 
@@ -43,7 +45,11 @@ def set_lock(lock) -> None:
 def patch_tqdm_module() -> None:
     import tqdm as module
 
-    module.tqdm = tqdm
+    module.tqdm = create_progress
     module.tqdm.write = write
     module.tqdm.set_lock = set_lock
+
+
+def tqdm(*args: Iterable[Any], **kwargs: Any):
+    return create_progress(*args, **kwargs)
 
