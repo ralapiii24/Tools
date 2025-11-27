@@ -54,6 +54,25 @@ SHOW_PROGRESS = bool(CONFIG["settings"].get("show_progress", True))
 logging.basicConfig(level=logging.INFO, format="[%(asctime)s] %(message)s")
 LOGGER = logging.getLogger(__name__)
 
+TASK_DISPLAY_NAMES = {
+    "FXOSWebTask": "FXOSWebTask-FXOS设备Web巡检",
+    "MirrorFortiGateTask": "MirrorFortiGateTask-FortiGate设备镜像巡检",
+    "OxidizedTask": "OxidizedTask-Oxidized配置备份巡检",
+    "ESLogstashTask": "ESLogstashTask-Logstash服务器巡检",
+    "ESBaseTask": "ESBaseTask-Elasticsearch基础巡检",
+    "ESN9KLOGInspectTask": "ESN9KLOGInspectTask-ES N9K日志检查",
+    "ESFlowTask": "ESFlowTask-Flow服务器巡检",
+    "DeviceBackupTask": "DeviceBackupTask-设备备份任务",
+    "DeviceDIFFTask": "DeviceDIFFTask-设备差异检查",
+    "ASACompareTask": "ASACompareTask-ASA防火墙对比检查",
+    "ACLDupCheckTask": "ACLDupCheckTask-ACL重复检查任务",
+    "ACLArpCheckTask": "ACLArpCheckTask-ACL无ARP匹配检查任务",
+    "ACLCrossCheckTask": "ACLCrossCheckTask-N9K&LINKAS ACL交叉检查任务",
+    "ASADomainCheckTask": "ASADomainCheckTask-ASA域名提取和检测任务",
+    "ServiceCheckTask": "ServiceCheckTask-服务检查任务(NTP TACACS+)",
+    "LogRecyclingTask": "LogRecyclingTask-日志回收任务（月底最后一天执行）"
+}
+
 _TQDM_POSITION = threading.local()
 
 def _parallel_tqdm(*args, **kwargs):
@@ -74,9 +93,15 @@ def _get_task_cls(name: str):
 
 from typing import Optional
 
+def _parallel_header(name: str) -> None:
+    display = TASK_DISPLAY_NAMES.get(name, name)
+    _parallel_tqdm.write(f"\n=== 执行 {display} ===\n")
+
+
 def _run_task(name: str, position: Optional[int] = None) -> None:
     if position is not None:
         _TQDM_POSITION.position = position
+    _parallel_header(name)
     task_cls = _get_task_cls(name)
     LOGGER.info("启动任务：%s", name)
     task = task_cls()
@@ -163,24 +188,7 @@ def main():
     TODAY, SETTINGS, BASE_LOG_DIR, REPORT_DIR, DAILY_REPORT = _report_header()
     TASKS, ENABLED_TASKS, DISABLED_TASKS = _gather_tasks()
 
-    TASK_NAMES = {
-        "FXOSWebTask": "FXOSWebTask-FXOS设备Web巡检",
-        "MirrorFortiGateTask": "MirrorFortiGateTask-FortiGate设备镜像巡检",
-        "OxidizedTask": "OxidizedTask-Oxidized配置备份巡检",
-        "ESLogstashTask": "ESLogstashTask-Logstash服务器巡检",
-        "ESBaseTask": "ESBaseTask-Elasticsearch基础巡检",
-        "ESN9KLOGInspectTask": "ESN9KLOGInspectTask-ES N9K日志检查",
-        "ESFlowTask": "ESFlowTask-Flow服务器巡检",
-        "DeviceBackupTask": "DeviceBackupTask-设备备份任务",
-        "DeviceDIFFTask": "DeviceDIFFTask-设备差异检查",
-        "ASACompareTask": "ASACompareTask-ASA防火墙对比检查",
-        "ACLDupCheckTask": "ACLDupCheckTask-ACL重复检查任务",
-        "ACLArpCheckTask": "ACLArpCheckTask-ACL无ARP匹配检查任务",
-        "ACLCrossCheckTask": "ACLCrossCheckTask-N9K&LINKAS ACL交叉检查任务",
-        "ASADomainCheckTask": "ASADomainCheckTask-ASA域名提取和检测任务",
-        "ServiceCheckTask": "ServiceCheckTask-服务检查任务(NTP TACACS+)",
-        "LogRecyclingTask": "LogRecyclingTask-日志回收任务（月底最后一天执行）"
-    }
+    TASK_NAMES = TASK_DISPLAY_NAMES
 
     if ENABLED_TASKS:
         print(f"启用的任务: {', '.join(ENABLED_TASKS)}")
