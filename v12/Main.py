@@ -18,13 +18,15 @@ import json
 import logging
 import os
 import sys
+import threading
 import time
 from dataclasses import asdict
 from datetime import datetime
 
 # 导入第三方库
+import tqdm as _tqdm_module
 import yaml
-from tqdm import tqdm
+from tqdm import tqdm as _tqdm_orig
 
 # 导入本地应用
 from TASK import __all__ as TASK_CLASSES
@@ -52,30 +54,52 @@ SHOW_PROGRESS = bool(CONFIG["settings"].get("show_progress", True))
 logging.basicConfig(level=logging.INFO, format="[%(asctime)s] %(message)s")
 LOGGER = logging.getLogger(__name__)
 
+_TQDM_POSITION = threading.local()
+
+def _parallel_tqdm(*args, **kwargs):
+    pos = getattr(_TQDM_POSITION, "position", None)
+    if pos is not None and "position" not in kwargs:
+        kwargs["position"] = pos
+    return _tqdm_orig(*args, **kwargs)
+
+_tqdm_module.tqdm = _parallel_tqdm
+_parallel_tqdm.write = _tqdm_orig.write
+_parallel_tqdm.set_lock = _tqdm_orig.set_lock
+tqdm = _parallel_tqdm
+
 
 def _get_task_cls(name: str):
     return TASK_MODULES[name]
 
 
-def _run_task(name: str) -> None:
+def _run_task(name: str, position: int | None = None) -> None:
+    if position is not None:
+        _TQDM_POSITION.position = position
     task_cls = _get_task_cls(name)
     LOGGER.info("启动任务：%s", name)
     task = task_cls()
     task.run()
     LOGGER.info("任务完成：%s", name)
+    if position is not None:
+        del _TQDM_POSITION.position
 
 
-def _run_parallel(names: list[str]) -> None:
+def _run_parallel(names: list[str], start_position: int = 0) -> None:
     if not names:
         return
     with concurrent.futures.ThreadPoolExecutor(max_workers=len(names)) as executor:
-        futures = {executor.submit(_run_task, name): name for name in names}
+        futures = {
+            executor.submit(_run_task, name, start_position + index): name
+            for index, name in enumerate(names)
+        }
         for future in concurrent.futures.as_completed(futures):
             future.result()
 
 
 def _parallel_inspection() -> None:
-    _run_task("OxidizedTask")
+    initial = ["FXOSWebTask", "OxidizedTask", "ESLogstashTask"]
+    _run_parallel(initial, start_position=0)
+
     _run_task("DeviceBackupTask")
 
     _run_parallel([
@@ -84,14 +108,13 @@ def _parallel_inspection() -> None:
         "ACLCrossCheckTask",
         "ACLDupCheckTask",
         "ASADomainCheckTask",
-    ])
+    ], start_position=len(initial))
 
     _run_task("ACLArpCheckTask")
 
-    _run_task("FXOSWebTask")
     _run_task("MirrorFortiGateTask")
 
-    for name in ("ESLogstashTask", "ESBaseTask", "ESFlowTask", "ESN9KLOGInspectTask", "ServiceCheckTask"):
+    for name in ("ESBaseTask", "ESFlowTask", "ESN9KLOGInspectTask", "ServiceCheckTask"):
         _run_task(name)
 
     _run_task("LogRecyclingTask")
