@@ -3982,10 +3982,15 @@ class ACLCrossCheckTask(BaseTask):
         progress = self.create_progress(
             total=total_steps,
             desc=self.NAME,
-            position=0,
+            position_offset=0,
+        ) if SHOW_PROGRESS else None
+
+        # 示范：为交叉检查增加一条子阶段进度条，使用主入口 position +1
+        stage_progress = self.create_progress(
+            total=2,
+            desc=f"{self.NAME}-阶段",
+            position_offset=1,
             leave=True,
-            dynamic_ncols=True,
-            bar_format=BAR_FORMAT,
         ) if SHOW_PROGRESS else None
 
         try:
@@ -3996,7 +4001,11 @@ class ACLCrossCheckTask(BaseTask):
             rules_cache = self._build_rules_cache(sheet_info_list, progress)
             
             # 执行所有步骤
+            if stage_progress:
+                stage_progress.update(1)
             result = self._execute_all_steps(sheet_info_list, output_workbook, rules_cache, progress, output_path)
+            if stage_progress:
+                stage_progress.update(1)
             if result is None:
                 return
             
