@@ -3975,11 +3975,11 @@ class ACLCrossCheckTask(BaseTask):
             output_workbook.remove(output_workbook["Sheet"])
 
         # 使用父类的进度条处理
-        from progress import tqdm
+        from progress import create_progress
         from .TaskBase import BAR_FORMAT, SHOW_PROGRESS
 
         total_steps = len(task_items) + 18
-        progress = tqdm(
+        progress = self.create_progress(
             total=total_steps,
             desc=self.NAME,
             position=0,

@@ -15,7 +15,7 @@ import xlsxwriter
 
 # 导入本地应用
 from .TaskBase import BaseTask, Level, CONFIG, safe_sheet_name
-from progress import tqdm
+from progress import create_progress
 
 # 解析ACL正则（复用ACLDup思想，提取必要子集）：支持 NXOS/IOS-XE/ASA，any/CIDR/IP+wildcard，端口eq/range与行尾log均可忽略
 NXOS_RE = re.compile(r"""
@@ -661,16 +661,11 @@ class ACLArpCheckTask(BaseTask):
             return
 
         # 使用父类的进度条处理
-        from progress import tqdm
         from .TaskBase import BAR_FORMAT, SHOW_PROGRESS
         
-        progress = tqdm(
+        progress = self.create_progress(
             total=len(sheet_names),
-            desc=self.NAME,
-            position=0,
-            leave=True,
-            dynamic_ncols=True,
-            bar_format=BAR_FORMAT,
+            position_offset=0,
         ) if SHOW_PROGRESS else None
         
         try:

@@ -10,7 +10,7 @@ from typing import Any, Dict, Iterable, Optional, Tuple
 # 导入第三方库
 import paramiko
 import yaml
-from progress import tqdm
+from progress import create_progress, tqdm
 
 # 读取配置
 with open("YAML/Config.yaml", "r", encoding="utf-8") as fileHandle:
@@ -281,13 +281,9 @@ class BaseTask:
     # 执行任务：遍历所有项目并执行巡检，显示进度条
     def run(self) -> None:
         task_items = list(self.items())
-        progress = tqdm(
+        progress = self.create_progress(
             total=len(task_items),
-            desc=self.NAME,
-            position=0,
-            leave=True,
-            dynamic_ncols=True,
-            bar_format=BAR_FORMAT,
+            position_offset=0,
         ) if SHOW_PROGRESS else None
 
         try:
@@ -301,5 +297,12 @@ class BaseTask:
         finally:
             if progress:
                 progress.close()
+
+    def create_progress(self, total: int, position_offset: int = 0, **kwargs):
+        kwargs.setdefault("desc", self.NAME)
+        kwargs.setdefault("leave", True)
+        kwargs.setdefault("dynamic_ncols", True)
+        kwargs.setdefault("bar_format", BAR_FORMAT)
+        return create_progress(total=total, position_offset=position_offset, **kwargs)
 
 

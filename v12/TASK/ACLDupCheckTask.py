@@ -750,10 +750,10 @@ class ACLDupCheckTask(BaseTask):
             return
 
         # 使用父类的进度条处理
-        from progress import tqdm
+        from progress import create_progress
         from .TaskBase import BAR_FORMAT, SHOW_PROGRESS
 
-        progress = tqdm(
+        progress = self.create_progress(
             total=len(task_items),
             desc=self.NAME,
             position=0,

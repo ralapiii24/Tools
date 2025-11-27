@@ -6,7 +6,7 @@ from datetime import datetime
 
 # 导入第三方库
 from openpyxl import Workbook
-from progress import tqdm
+from progress import create_progress
 
 # 导入本地应用
 from .TaskBase import BaseTask, Level, extract_site_from_device, BAR_FORMAT, SHOW_PROGRESS
@@ -549,13 +549,9 @@ class ASACompareTask(BaseTask):
     # 重写run方法，在所有站点处理完成后保存Excel文件
     def run(self) -> None:
         task_items = list(self.items())
-        progress = tqdm(
+        progress = self.create_progress(
             total=len(task_items),
-            desc=self.NAME,
-            position=0,
-            leave=True,
-            dynamic_ncols=True,
-            bar_format=BAR_FORMAT,
+            position_offset=0,
         ) if SHOW_PROGRESS else None
 
         try:
