@@ -23,8 +23,6 @@ from dataclasses import asdict
 from datetime import datetime
 from typing import Optional
 
-PARALLEL_FLAG = "--parallel"
-
 # 导入第三方库
 import yaml
 
@@ -173,11 +171,8 @@ def _gather_tasks():
 
 
 def main():
-    if PARALLEL_FLAG in sys.argv[1:]:
-        _parallel_inspection()
-        return
-
-    TODAY, SETTINGS, BASE_LOG_DIR, REPORT_DIR, DAILY_REPORT = _report_header()
+    _parallel_inspection()
+    return
     TASKS, ENABLED_TASKS, DISABLED_TASKS = _gather_tasks()
 
     TASK_NAMES = TASK_DISPLAY_NAMES
