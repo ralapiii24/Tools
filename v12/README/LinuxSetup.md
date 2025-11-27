@@ -21,6 +21,11 @@ python3 -m playwright install chromium
 2. `Main.py` 直接封装核心巡检调度逻辑，部署时不再依赖 APP 目录，本地依赖需在安装阶段准备；
 3. 如需排查 Playwright 依赖，可以单独运行 `python3 -m playwright install-deps` 确保系统库存在。
 
+## 并行调度模式（可选）
+- 通过 `python3 Main.py --parallel` 按依赖链串/并行调度任务（Oxidized → DeviceBackup → 下游 ACL/ASA 任务、FXOS/Mirror、ES 链、LogRecycling）。
+- 命令会等待 `DeviceBackupTask` 生成 Excel 后再并行触发 `ASACompareTask`、`ACLCrossCheckTask`、`ACLDupCheckTask` 等，`ACLArpCheckTask` 会在 `ACLDupCheckTask` 完成后串行运行。
+- `Main.py` 仍是默认入口，`--parallel` 只是可选开关；它和常规模式共享 `LOG/<任务名>/` 结构，便于对齐报告。
+
 ## 其他提示
 - 若系统缺少 `pip`，可以 `python3 -m ensurepip --upgrade` 后再执行上述步骤；
 - Playwright 下载 Chromium 后会缓存到 `~/.cache/ms-playwright`，可在该目录下手动清理；

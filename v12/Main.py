@@ -13,7 +13,9 @@ import traceback
 # 主程序入口：执行所有启用的巡检任务并生成日报
 
 # 导入标准库
+import concurrent.futures
 import json
+import logging
 import os
 import sys
 import time
@@ -27,6 +29,8 @@ from tqdm import tqdm
 # 导入本地应用
 from TASK import __all__ as TASK_CLASSES
 from TASK.TaskBase import require_keys
+
+PARALLEL_FLAG = "--parallel"
 
 # 动态导入所有任务类
 TASK_MODULES = {}
@@ -45,6 +49,52 @@ with open("YAML/Config.yaml", "r", encoding="utf-8") as f:
 require_keys(CONFIG, ["settings"], "root")
 
 SHOW_PROGRESS = bool(CONFIG["settings"].get("show_progress", True))
+logging.basicConfig(level=logging.INFO, format="[%(asctime)s] %(message)s")
+LOGGER = logging.getLogger(__name__)
+
+
+def _get_task_cls(name: str):
+    return TASK_MODULES[name]
+
+
+def _run_task(name: str) -> None:
+    task_cls = _get_task_cls(name)
+    LOGGER.info("启动任务：%s", name)
+    task = task_cls()
+    task.run()
+    LOGGER.info("任务完成：%s", name)
+
+
+def _run_parallel(names: list[str]) -> None:
+    if not names:
+        return
+    with concurrent.futures.ThreadPoolExecutor(max_workers=len(names)) as executor:
+        futures = {executor.submit(_run_task, name): name for name in names}
+        for future in concurrent.futures.as_completed(futures):
+            future.result()
+
+
+def _parallel_inspection() -> None:
+    _run_task("OxidizedTask")
+    _run_task("DeviceBackupTask")
+
+    _run_parallel([
+        "ASACompareTask",
+        "DeviceDIFFTask",
+        "ACLCrossCheckTask",
+        "ACLDupCheckTask",
+        "ASADomainCheckTask",
+    ])
+
+    _run_task("ACLArpCheckTask")
+
+    _run_task("FXOSWebTask")
+    _run_task("MirrorFortiGateTask")
+
+    for name in ("ESLogstashTask", "ESBaseTask", "ESFlowTask", "ESN9KLOGInspectTask", "ServiceCheckTask"):
+        _run_task(name)
+
+    _run_task("LogRecyclingTask")
 
 
 def _report_header():
@@ -81,6 +131,10 @@ def _gather_tasks():
 
 
 def main():
+    if PARALLEL_FLAG in sys.argv[1:]:
+        _parallel_inspection()
+        return
+
     TODAY, SETTINGS, BASE_LOG_DIR, REPORT_DIR, DAILY_REPORT = _report_header()
     TASKS, ENABLED_TASKS, DISABLED_TASKS = _gather_tasks()
 
