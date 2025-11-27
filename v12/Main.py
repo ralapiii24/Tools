@@ -24,12 +24,12 @@ from dataclasses import asdict
 from datetime import datetime
 from typing import Optional
 
+PARALLEL_FLAG = "--parallel"
+
 # 导入第三方库
 import tqdm as _tqdm_module
 import yaml
 from tqdm import tqdm as _tqdm_orig
-
-PARALLEL_FLAG = "--parallel"
 
 _TQDM_POSITION = threading.local()
 
@@ -81,20 +81,14 @@ TASK_DISPLAY_NAMES = {
     "LogRecyclingTask": "LogRecyclingTask-日志回收任务（月底最后一天执行）"
 }
 
-_TQDM_POSITION = threading.local()
-
-def _parallel_tqdm(*args, **kwargs):
-    pos = getattr(_TQDM_POSITION, "position", None)
-    if pos is not None and "position" not in kwargs:
-        kwargs["position"] = pos
-    return _tqdm_orig(*args, **kwargs)
-
-_tqdm_module.tqdm = _parallel_tqdm
-_parallel_tqdm.write = _tqdm_orig.write
-_parallel_tqdm.set_lock = _tqdm_orig.set_lock
-tqdm = _parallel_tqdm
-
-
+ 
+TASK_MODULES = {}
+for TASK_NAME in TASK_CLASSES:
+    try:
+        TASK_MODULE = __import__(f'TASK.{TASK_NAME}', fromlist=[TASK_NAME])
+        TASK_MODULES[TASK_NAME] = getattr(TASK_MODULE, TASK_NAME)
+    except Exception as e:
+        print(f"警告：无法导入任务类 {TASK_NAME}: {e}")
 def _get_task_cls(name: str):
     return TASK_MODULES[name]
 
