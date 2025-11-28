@@ -4,7 +4,6 @@ settings:
   debug: false          # 调试模式开关 - 所有TASK
   log_dir: LOG          # 日志目录 - 所有TASK
   report_dir: REPORT    # 报告目录 - 所有TASK
-  enable_local_upgrade: true  # 本地版本升级开关 - Updater.py调用
   # 平台网段映射配置 - 公共配置，多个任务共用
   # Sheet名称（站点名）到平台网段的映射，用于识别各站点的平台网段
   platform_network_map:
