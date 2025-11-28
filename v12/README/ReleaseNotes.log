@@ -1,100 +1,126 @@
 ##########################################################################################################################################################
+V12版本 - 基于V11的持续开发
+##########################################################################################################################################################
+
+【架构变更】
+1. 功能整合：将 APP/RuntimeEnvCheck.py、APP/Core.py、APP/Updater.py 的所有功能整合到 Main.py，Main.py 成为唯一的程序入口
+2. 目录删除：删除整个 APP 目录及其所有文件（APP/Core.py、APP/RuntimeEnvCheck.py、APP/Updater.py、APP/PipLibrary.bat、APP/PipLibrary.sh、APP/CodeStyleChecker.py）
+3. 升级功能移除：移除 Updater.py 及其相关功能，包括 FTP 升级检查、本地版本升级开关等
+4. 依赖安装脚本整合：将 PipLibrary.bat 和 PipLibrary.sh 的功能整合到 Main.py 的运行时环境检查部分，使用 Python 代码实现跨平台依赖安装
+
+【代码变更】
+1. Main.py功能整合：Main.py 包含两部分功能，第一部分为运行时环境检查（原 RuntimeEnvCheck.py），第二部分为任务调度（原 Core.py），执行流程：依赖预检 → 执行巡检任务
+2. 跨平台支持：Main.py 支持 Windows、Linux、macOS 三个平台，自动识别平台并安装相应的系统依赖
+3. 命令行参数：Main.py 新增 --check 参数（只检查依赖，不执行巡检）和 --install 参数（安装所有依赖包）
+4. 文档变更：将 README/TaskNotes.log 中每个任务的详细说明拆分到对应任务文件的最顶部，删除 README/TaskNotes.log 文件
+5. 任务描述修正：修正所有任务文件开头的描述，确保与实际代码实现一致，包括 DeviceBackupTask 补充 cat6 设备分类、ACLCrossCheckTask 修正 cat6 描述、ACLArpCheckTask 补充脚本输出文件名格式说明
+
+【文件变更】
+1. 删除文件：APP/Core.py、APP/RuntimeEnvCheck.py、APP/Updater.py、APP/PipLibrary.bat、APP/PipLibrary.sh、APP/CodeStyleChecker.py、README/TaskNotes.log
+2. 修改文件：Main.py（整合所有核心功能）、各任务文件（顶部添加详细说明）
+
+【配置变更】
+1. Config.yaml：移除 enable_local_upgrade 配置项
+2. Version.yaml：移除 updater 配置节，仅保留 version 字段
+3. Config.yaml：添加 urllib3 到 dependencies 配置
+
+##########################################################################################################################################################
 V11版本 - 基于V10的持续开发
 ##########################################################################################################################################################
 
 【新增功能】
 1. ACLCrossCheckTask新增：N9K&LINKAS ACL交叉检查任务，实现跨Sheet的ACL规则匹配检查，支持13个步骤的复杂匹配逻辑（步骤4-13），包括完全匹配、覆盖匹配、包含匹配、平台外覆盖、特殊规则检查等，使用多颜色标记系统（绿色、蓝色、橙色、紫色、深黄色）区分不同类型的匹配规则，支持双向检查（步骤4-10），输出Excel文件到LOG/ACLCrossCheckTask/目录
 2. ACLCrossCheckTask染色逻辑文档：新增ACLCrossCheckTask_染色逻辑说明.md文档，详细说明13个步骤的染色逻辑、颜色优先级机制、匹配函数说明、配置依赖等，提供完整的任务逻辑说明
-3. CiscoBase.py新增：Cisco ACL解析基础模块，统一ACL解析功能，支持NX-OS CIDR格式和IOS-XE wildcard/host混合格式解析，提供parse_acl、find_acl_blocks_in_column、extract_acl_rules_from_column等通用函数，供ACLCrossCheckTask、ACLArpCheckTask、ACLDupCheckTask等任务共用，减少代码重复，提升维护性
-4. 代码规范检查工具：新增APP/CodeStyleChecker.py代码规范检查工具，支持自动检查文件结构、导入规范、注释规范、命名规范、代码结构等，可生成详细的检查报告，便于持续维护代码质量
-5. 文件重构：Base.py拆分为TaskBase.py（通用基础类和工具函数）和LinuxServerBase.py（Linux服务器巡检基类），提升代码模块化和可维护性，Linux相关功能独立管理
+3. CiscoBase.py新增：Cisco ACL解析基础模块，提供统一的ACL解析功能，支持NX-OS CIDR格式和IOS-XE wildcard/host混合格式解析，提供parse_acl、find_acl_blocks_in_column、extract_acl_rules_from_column等通用函数，供ACLCrossCheckTask、ACLArpCheckTask、ACLDupCheckTask等任务共用
+4. 代码规范检查工具：新增APP/CodeStyleChecker.py代码规范检查工具，支持自动检查文件结构、导入规范、注释规范、命名规范、代码结构等，可生成详细的检查报告
+5. 文件拆分：Base.py拆分为TaskBase.py（通用基础类和工具函数）和LinuxServerBase.py（Linux服务器巡检基类），Linux相关功能独立管理
 6. 补丁脚本：新增Patch-v11-0001.py脚本，用于删除已重命名的Base.py文件（已重命名为TaskBase.py），支持生产环境自动清理旧文件
 
-【代码优化】
-1. TaskBase.py代码优化：Base.py重构为TaskBase.py，移除重复的require_keys函数定义，移除冗余的_grade_percent静态方法（直接使用全局grade_percent函数），统一注释规范（使用单行注释替代docstring），Linux相关功能迁移到LinuxServerBase.py，代码结构更清晰
-2. Updater.py更新：更新文件检查逻辑，将Base.py检查改为TaskBase.py，移除对旧文件名的兼容性检查，简化升级检测流程
-3. ACLArpCheckTask.py优化：优化find_acl_blocks_in_column函数（已迁移到CiscoBase），改进登录ACL结束标记检测逻辑（支持大小写不敏感匹配，匹配包含vty和ip的ip access-list行），修复最后一个ACL块处理逻辑（只有在没有遇到登录ACL结束标记时才处理），优化NoUseIPRange优先级（命中NoUseIPRange时优先级高于ignore_third_octet），脚本生成优化（根据原始ACL定义是否包含extended关键字自动决定是否添加extended，支持cat1不带extended和cat2带extended的区分），检测逻辑重构（移除special_networks配置，改用公共配置settings.platform_network_map，只检测在平台网段内的网络，忽略ignore_third_octet指定的第三段），使用CiscoBase统一ACL解析功能
-4. ACLDupCheckTask.py优化：优化find_acl_blocks_in_column函数（已迁移到CiscoBase），改进登录ACL结束标记检测逻辑（支持大小写不敏感匹配），修复最后一个ACL块处理逻辑，与ACLArpCheckTask保持一致的实现，使用CiscoBase统一ACL解析功能
-5. ACLCrossCheckTask.py优化：使用CiscoBase统一ACL解析功能，步骤10实现双向检查支持（同时检查Sheet A -> Sheet B和Sheet B -> Sheet A方向），使用预构建索引避免重复计算（cat2反向匹配索引、cat6与cat1包含关系索引、cat1覆盖cat2索引），优化查找效率（将列表转换为set使用O(1)查找替代O(n)的any()函数），限制检查范围（组合数超过50000时限制检查前50000个），文件保存优化（默认只在最后保存一次，提升性能）
-6. ServiceCheckTask.py优化：移除未使用的导入（os, datetime, timedelta），统一注释规范（使用单行注释替代docstring），移除冗余的类注释
-7. 注释规范统一：所有TASK文件统一使用单行注释（#）替代docstring，移除冗余的类和方法注释，统一注释风格和格式，提升代码可读性
-8. 代码质量提升：移除垃圾代码（重复函数、未使用导入、死代码），优化变量命名（避免单字母变量，如将循环变量i、j改为SHEET_INDEX_A、SHEET_INDEX_B），提升代码可读性和维护性
-9. 代码规范全面修复：修复文件结构问题（Main.py和__init__.py的模块说明后空行），修复导入规范问题（补充缺失的导入分类注释，包括APP/Core.py、APP/RuntimeEnvCheck.py、APP/Updater.py、Main.py、TASK/ESFlowTask.py、TASK/LogRecyclingTask.py），修复命名规范问题（将单字母循环变量改为描述性名称，如RuntimeEnvCheck.py中的p改为PKG，Updater.py中的i、s、c、p改为INDEX、SUFFIX、CANDIDATE、PATH，ACLArpCheckTask.py中的x改为OCTET_VALUE，ASADomainCheckTask.py中的d改为DOMAIN），修复注释规范问题（将APP目录下的所有docstring改为单行注释，包括RuntimeEnvCheck.py的5处docstring和Updater.py的8处docstring）
-10. 导入路径更新：所有任务文件更新导入路径，Base.py相关导入改为TaskBase.py或LinuxServerBase.py，确保文件重构后代码正常运行
+【代码变更】
+1. TaskBase.py变更：Base.py改为TaskBase.py，移除重复的require_keys函数定义，移除冗余的_grade_percent静态方法（直接使用全局grade_percent函数），注释改为单行注释（替代docstring），Linux相关功能迁移到LinuxServerBase.py
+2. Updater.py更新：更新文件检查逻辑，将Base.py检查改为TaskBase.py，移除对旧文件名的兼容性检查
+3. ACLArpCheckTask.py变更：find_acl_blocks_in_column函数迁移到CiscoBase，登录ACL结束标记检测逻辑修改（支持大小写不敏感匹配，匹配包含vty和ip的ip access-list行），修复最后一个ACL块处理逻辑（只有在没有遇到登录ACL结束标记时才处理），NoUseIPRange优先级调整（命中NoUseIPRange时优先级高于ignore_third_octet），脚本生成修改（根据原始ACL定义是否包含extended关键字自动决定是否添加extended，支持cat1不带extended和cat2带extended的区分），检测逻辑变更（移除special_networks配置，改用公共配置settings.platform_network_map，只检测在平台网段内的网络，忽略ignore_third_octet指定的第三段），使用CiscoBase的ACL解析功能
+4. ACLDupCheckTask.py变更：find_acl_blocks_in_column函数迁移到CiscoBase，登录ACL结束标记检测逻辑修改（支持大小写不敏感匹配），修复最后一个ACL块处理逻辑，与ACLArpCheckTask保持一致的实现，使用CiscoBase的ACL解析功能
+5. ACLCrossCheckTask.py变更：使用CiscoBase的ACL解析功能，步骤10实现双向检查支持（同时检查Sheet A -> Sheet B和Sheet B -> Sheet A方向），使用预构建索引避免重复计算（cat2反向匹配索引、cat6与cat1包含关系索引、cat1覆盖cat2索引），查找效率调整（将列表转换为set使用O(1)查找替代O(n)的any()函数），限制检查范围（组合数超过50000时限制检查前50000个），文件保存调整（默认只在最后保存一次）
+6. ServiceCheckTask.py变更：移除未使用的导入（os, datetime, timedelta），注释改为单行注释（替代docstring），移除冗余的类注释
+7. 注释规范变更：所有TASK文件改为使用单行注释（#）替代docstring，移除冗余的类和方法注释，注释风格和格式统一
+8. 代码变更：移除重复函数、未使用导入、死代码，变量命名调整（避免单字母变量，如将循环变量i、j改为SHEET_INDEX_A、SHEET_INDEX_B）
+9. 代码规范修复：修复文件结构问题（Main.py和__init__.py的模块说明后空行），修复导入规范问题（补充缺失的导入分类注释，包括APP/Core.py、APP/RuntimeEnvCheck.py、APP/Updater.py、Main.py、TASK/ESFlowTask.py、TASK/LogRecyclingTask.py），修复命名规范问题（将单字母循环变量改为描述性名称，如RuntimeEnvCheck.py中的p改为PKG，Updater.py中的i、s、c、p改为INDEX、SUFFIX、CANDIDATE、PATH，ACLArpCheckTask.py中的x改为OCTET_VALUE，ASADomainCheckTask.py中的d改为DOMAIN），修复注释规范问题（将APP目录下的所有docstring改为单行注释，包括RuntimeEnvCheck.py的5处docstring和Updater.py的8处docstring）
+10. 导入路径更新：所有任务文件更新导入路径，Base.py相关导入改为TaskBase.py或LinuxServerBase.py
 
-【配置优化】
-1. 平台网段映射公共化：将platform_network_map从ACLCrossCheckTask配置节迁移到公共配置settings.platform_network_map，供多个任务共用（ACLCrossCheckTask、ACLArpCheckTask等），提升配置复用性和维护性
-2. ACLArpCheckTask配置简化：移除special_networks配置项（不再使用特殊网段列表），改为使用公共配置settings.platform_network_map判断检测范围，配置更加简洁统一
-3. Config.yaml注释完善：为所有主要配置块添加注释说明（network、ACLDupCheckTask、ACLArpCheckTask、ACLCrossCheckTask、ASADomainCheckTask、LogRecyclingTask），统一注释格式（配置块前添加注释，说明配置用途和调用者），提升配置文件可读性和维护性，注释覆盖率从7.3%提升到9.1%
+【配置变更】
+1. 平台网段映射迁移：将platform_network_map从ACLCrossCheckTask配置节迁移到公共配置settings.platform_network_map，供多个任务共用（ACLCrossCheckTask、ACLArpCheckTask等）
+2. ACLArpCheckTask配置变更：移除special_networks配置项（不再使用特殊网段列表），改为使用公共配置settings.platform_network_map判断检测范围
+3. Config.yaml注释补充：为所有主要配置块添加注释说明（network、ACLDupCheckTask、ACLArpCheckTask、ACLCrossCheckTask、ASADomainCheckTask、LogRecyclingTask），注释格式统一（配置块前添加注释，说明配置用途和调用者），注释覆盖率从7.3%调整到9.1%
 
 ##########################################################################################################################################################
 V10版本 - 基于V9的持续开发
 ##########################################################################################################################################################
 
 【新增功能】
-1. 目录结构重构与文件迁移：从日期目录（LOG/YYYYMMDD/）迁移到任务目录（LOG/TaskName/），所有任务输出统一到LOG目录下的任务专用子目录；任务输出从ACL/DOMAIN/CONFIGURATION迁移到LOG/任务名/；DNS缓存文件（DNSLocalCache.log、ManualDomainRecovery.log）从DOMAIN迁移到CHECKRULE目录
+1. 目录结构变更与文件迁移：从日期目录（LOG/YYYYMMDD/）迁移到任务目录（LOG/TaskName/），所有任务输出迁移到LOG目录下的任务专用子目录；任务输出从ACL/DOMAIN/CONFIGURATION迁移到LOG/任务名/；DNS缓存文件（DNSLocalCache.log、ManualDomainRecovery.log）从DOMAIN迁移到CHECKRULE目录
 2. 数据迁移补丁脚本：新增Patch-v10-0001.py脚本，支持自动迁移历史数据（目录移动、文件重命名、格式统一）
 3. 180天清理规则：LogRecyclingTask新增自动删除超过180天文件的功能，保护今天和昨天的日志避免与写入冲突
 4. ConfigureOutput目录自动清空：ACLArpCheckTask和ASADomainCheckTask的脚本输出目录每次任务执行前自动清空
 
-【代码优化】
-1. 文件命名规范统一：统一使用YYYYMMDD-任务名.log格式，文件名下划线替换为空格，任务名称统一使用空格分隔
+【代码变更】
+1. 文件命名规范变更：改为使用YYYYMMDD-任务名.log格式，文件名下划线替换为空格，任务名称使用空格分隔
 2. Core.py日志输出路径：任务日志保存在LOG/任务类名/YYYYMMDD-任务显示名.log，日报记录LOG根目录而非日期目录
 3. LogRecyclingTask遍历逻辑：支持递归遍历LOG目录下的任务子目录，处理所有文件类型（.log、.xlsx、.zip），180天清理规则优先执行
 4. ACLArpCheckTask脚本输出格式：移除ip access-list命令中的extended关键字，支持IOS-XE规则末尾的log/log-input/time-range等可选关键字匹配
 5. ACL代码统一和bug修复：ACLDupCheckTask和ACLArpCheckTask统一find_acl_blocks_in_column函数实现，修复最后一个ACL块可能未处理的逻辑错误
 6. ASADomainCheckTask输出格式：单站点输出合并为单行汇总，静默中间OK日志，强制删除并重建输出Excel
 7. 汇总输出控制开关：ACLDupCheckTask和ACLArpCheckTask通过Config.yaml的enable_summary_output开关控制汇总统计输出，默认关闭
-8. 任务名称规范化：OxidizedTask、ESBaseTask、ESLogstashTask、ESFlowTask、ESN9KLOGInspectTask、FXOSWebTask移除任务名称中的多余空格
-9. 代码规范统一：统一所有文件的导入分类（标准库/第三方库/本地应用）、注释规范（文件开头模块说明、类和函数前注释）、空行规范（最多连续2个空行），修复ESBaseTask、ESLogstashTask、ServiceCheckTask等文件的规范问题
-10. 变量命名优化：ACLArpCheckTask统一变量命名为snake_case规范
-11. 未使用函数清理：删除ACLArpCheckTask和ASADomainCheckTask中的未使用函数定义
+8. 任务名称变更：OxidizedTask、ESBaseTask、ESLogstashTask、ESFlowTask、ESN9KLOGInspectTask、FXOSWebTask移除任务名称中的多余空格
+9. 代码规范变更：所有文件的导入分类统一（标准库/第三方库/本地应用）、注释规范统一（文件开头模块说明、类和函数前注释）、空行规范统一（最多连续2个空行），修复ESBaseTask、ESLogstashTask、ServiceCheckTask等文件的规范问题
+10. 变量命名变更：ACLArpCheckTask变量命名改为snake_case规范
+11. 未使用函数删除：删除ACLArpCheckTask和ASADomainCheckTask中的未使用函数定义
 
 ##########################################################################################################################################################
-V9版本 - 基于V8的持续优化
+V9版本 - 基于V8的持续开发
 ##########################################################################################################################################################
 
 【新增功能】
 1. LogRecyclingTask新增：日志回收任务，支持月底最后一天自动执行，实现规则1（删除非周一/周日/1号/31号的文件/目录）和规则2（压缩上上个月及更早的文件/目录，同月压缩到一个zip包），处理LOG、REPORT、ACL、DOMAIN、CONFIGURATION目录，支持UPGRADELOG目录无条件删除所有文件，配置支持force_run_date指定执行日期
 
-【代码优化】
-1. FXOSWebTask错误级别调整：将FXOS设备网页登录失败的错误级别从ERROR调整为WARN，降低网络临时故障或设备暂时不可访问的告警级别
-2. 变量命名规范统一：所有任务文件统一变量命名规范，本地变量和实例变量使用全大写（ALL_CAPS），消除单字母变量和缩写，Lambda函数参数统一命名（如OxidizedBackup_FILENAME）
-3. 配置标准化优化：统一所有任务配置读取逻辑，配置只从Config.yaml读取，移除代码中的本地默认值，添加require_keys验证必要配置项存在
-4. DeviceBackupTask优化：合并冗余识别模式，优化cat1（N9K核心交换机）和cat2（LINKAS接入交换机）识别逻辑，统一使用大小写不敏感匹配，Lambda参数全局统一命名
-5. LogRecyclingTask安全机制：添加压缩包文件保护，规则1和规则2均明确排除.zip文件，防止误删过往月份的压缩包
+【代码变更】
+1. FXOSWebTask错误级别调整：将FXOS设备网页登录失败的错误级别从ERROR调整为WARN
+2. 变量命名规范变更：所有任务文件变量命名规范统一，本地变量和实例变量使用全大写（ALL_CAPS），消除单字母变量和缩写，Lambda函数参数命名统一（如OxidizedBackup_FILENAME）
+3. 配置读取逻辑变更：所有任务配置读取逻辑统一，配置只从Config.yaml读取，移除代码中的本地默认值，添加require_keys验证必要配置项存在
+4. DeviceBackupTask变更：合并冗余识别模式，cat1（N9K核心交换机）和cat2（LINKAS接入交换机）识别逻辑调整，使用大小写不敏感匹配，Lambda参数命名统一
+5. LogRecyclingTask安全机制：添加压缩包文件保护，规则1和规则2均明确排除.zip文件
 
 ##########################################################################################################################################################
-V8版本 - 基于V7的持续优化
+V8版本 - 基于V7的持续开发
 ##########################################################################################################################################################
 
 【新增功能】
 1. ServiceCheckTask新增：NTP Chronyd和TACACS+ tac_plus服务状态检查，支持多服务器并行检查
 
-【代码优化】
-1. 命名/注释/间距统一：统一变量命名（异常变量error/文件句柄fileHandle等）、大小写规范（本地变量与实例变量全大写）、类/方法注释风格与 # 注释上方空行规范
+【代码变更】
+1. 命名/注释/间距统一：变量命名统一（异常变量error/文件句柄fileHandle等）、大小写规范统一（本地变量与实例变量全大写）、类/方法注释风格与 # 注释上方空行规范统一
 2. 设备过滤功能：OxidizedTask支持基于前缀的设备过滤，可配置忽略特定设备
-3. OxidizedTask架构优化：添加Last Status XPath检查，根据设备状态判断备份可行性；重构LOG和REPORT输出逻辑，实现设备级和节点级统计分离；删除调试信息
-4. 路径统一化：统一使用os.path.join()
-5. 设备识别扩展：DeviceBackupTask支持CS01-CS04设备识别；重构设备分类逻辑，支持cat4(LINK-DS)和cat5(BGP)设备统一分组到专门工作表
-6. Excel格式统一：所有Excel输出统一行高15、列宽80格式；ASADomainCheckTask统一采用模板重建+原子保存策略
-7. DNS缓存整合：ASADomainCheckTask统一使用 DOMAIN/DNSLocalCache.log（S/T/D 三态），月初自动清理 T 项，S 保持优先级
-8. ACLDupCheckTask输出优化：优化统计指标说明，移除JSON元数据输出，简化LOG显示格式
-9. 代码简化优化：MirrorFortiGateTask提取uptime解析和性能检查方法，移除Config.yaml冗余默认值
-10. REPORT文件格式优化：添加时间隔离符号，最新运行记录追加到顶部，任务列表格式化显示
+3. OxidizedTask架构变更：添加Last Status XPath检查，根据设备状态判断备份可行性；LOG和REPORT输出逻辑变更，实现设备级和节点级统计分离；删除调试信息
+4. 路径使用统一：使用os.path.join()
+5. 设备识别扩展：DeviceBackupTask支持CS01-CS04设备识别；设备分类逻辑变更，支持cat4(LINK-DS)和cat5(BGP)设备分组到专门工作表
+6. Excel格式统一：所有Excel输出行高15、列宽80格式；ASADomainCheckTask采用模板重建+原子保存策略
+7. DNS缓存整合：ASADomainCheckTask使用 DOMAIN/DNSLocalCache.log（S/T/D 三态），月初自动清理 T 项，S 保持优先级
+8. ACLDupCheckTask输出变更：统计指标说明调整，移除JSON元数据输出，LOG显示格式调整
+9. MirrorFortiGateTask代码变更：提取uptime解析和性能检查方法，移除Config.yaml冗余默认值
+10. REPORT文件格式变更：添加时间隔离符号，最新运行记录追加到顶部，任务列表格式化显示
 11. 代码注释清理：删除所有TASK文件中与README重复的类注释
-12. 配置验证重构：将具体任务的配置检查从Core.py迁移到各自任务类中，实现单一职责原则
-13. 阈值显示与术语统一：统一显示为"（预警WARN:X/严重CRITICAL:Y%）"；将 Uptime 统一为"启动时间"
+12. 配置验证迁移：将具体任务的配置检查从Core.py迁移到各自任务类中
+13. 阈值显示与术语统一：显示统一为"（预警WARN:X/严重CRITICAL:Y%）"；Uptime 统一为"启动时间"
 14. 本地升级开关：Config.yaml新增enable_local_upgrade配置项，Updater.py支持本地版本升级开关控制
-15. 任务重命名优化：PolicyDeviceBackupTask重命名为DeviceBackupTask，PolicyDeviceDIFFTask重命名为DeviceDIFFTask
-16. 输出格式统一优化：统一所有任务的LOG输出格式，使用"站点{站点名}{服务类型}"格式；服务类型描述优化（ESLogstashTask显示为"日志系统LOGSTASH"，ESBaseTask显示为"日志系统ES"，ESFlowTask显示为"流量分析系统FLOW"）
+15. 任务重命名：PolicyDeviceBackupTask重命名为DeviceBackupTask，PolicyDeviceDIFFTask重命名为DeviceDIFFTask
+16. 输出格式统一：所有任务的LOG输出格式统一，使用"站点{站点名}{服务类型}"格式；服务类型描述调整（ESLogstashTask显示为"日志系统LOGSTASH"，ESBaseTask显示为"日志系统ES"，ESFlowTask显示为"流量分析系统FLOW"）
 17. 补丁脚本系统：新增Patch.py脚本，支持旧版本升级到v8批量重命名文件、目录结构整理、LOG目录备份以与新版本目录、文件名字一致
 18. ACLNotUsedCheckTask废止：ACLNotUsedCheckTask功能已被ACLArpCheckTask继承，通过Patch.py脚本自动删除相关文件和目录
-19. 日志压降开关：BaseTask新增 settings.suppress_ok_logs（默认为false），可抑制OK级日志噪音
-20. ASADomainCheckTask优化：仅检查并标色 FW01 列，移除FW02残留逻辑与参数
+19. 日志压降开关：BaseTask新增 settings.suppress_ok_logs（默认为false），可抑制OK级日志
+20. ASADomainCheckTask变更：仅检查并标色 FW01 列，移除FW02残留逻辑与参数
 
 【文档更新】
-1. README结构优化：统一ReleaseNotes.log、Patch.log、TaskNotes.log的格式规范，明确各文件职责（发布说明/补丁操作/任务描述），废止任务移至末尾，新增修改任务置于前端
+1. README结构变更：ReleaseNotes.log、Patch.log、TaskNotes.log的格式规范统一，明确各文件职责（发布说明/补丁操作/任务描述），废止任务移至末尾，新增修改任务置于前端
 2. 文档内容更新：TaskNotes.log更新ACLNotUsedCheckTask废止说明、ServiceCheckTask新增任务描述、ASADomainCheckTask功能变更（DNS缓存整合、Excel输出、脚本生成等）详细说明
 
 ##########################################################################################################################################################
@@ -107,41 +133,41 @@ V7版本 - ACL策略分析与任务开关
 3. ACL无ARP匹配检查任务：支持多种ACL格式解析，ARP表解析提取有MAC的IP，特殊网段处理，智能判定逻辑，红色标记无ARP匹配
 4. 任务开关控制系统：在Config.yaml中添加task_switches配置节，支持单独启用/禁用任意任务，控制台和报告中显示任务开关状态
 
-【代码优化】
-1. 删除分隔注释格式：统一注释风格，删除冗余的分隔线
-2. ACL任务多设备处理优化：修复ACLNotUsedCheckTask和ACLArpCheckTask的进度显示问题，从单文件处理改为多设备处理，优化任务执行逻辑
-3. DeviceBackupTask配置截取优化：新增_extract_config方法，根据设备类别智能截取配置内容，支持NXOS N9K、IOS-XE、ASA FW等不同设备类型
-4. ACLArpCheckTask配置优化：新增ignore_third_octet配置参数，支持忽略特定第三段IP地址，默认忽略第三段为108的IP地址
+【代码变更】
+1. 分隔注释格式删除：注释风格统一，删除冗余的分隔线
+2. ACL任务多设备处理变更：修复ACLNotUsedCheckTask和ACLArpCheckTask的进度显示问题，从单文件处理改为多设备处理
+3. DeviceBackupTask配置截取变更：新增_extract_config方法，根据设备类别截取配置内容，支持NXOS N9K、IOS-XE、ASA FW等不同设备类型
+4. ACLArpCheckTask配置变更：新增ignore_third_octet配置参数，支持忽略特定第三段IP地址，默认忽略第三段为108的IP地址
 5. ASADomainCheckTask域名提取和检测任务：新增ASA域名提取和检测功能，支持DNS服务器可达性检测，实现域名解析检测，按平台分组生成Excel报告
-6. ASADomainCheckTask数据源优化：修改数据源从Excel文件改为LOG目录的.log文件，参考ASACompareTask实现，DNS检查优化，进度显示优化，站点识别优化
+6. ASADomainCheckTask数据源变更：修改数据源从Excel文件改为LOG目录的.log文件，参考ASACompareTask实现，DNS检查、进度显示、站点识别调整
 
 【文档更新】
 1. TaskNotes.log更新：添加新任务的详细说明，补充DeviceBackupTask的完整文档
 
 ##########################################################################################################################################################
-V6版本 - 架构重构
+V6版本 - 架构变更
 ##########################################################################################################################################################
 
-【架构改进】
+【架构变更】
 1. 将TASK任务独立成单独的python文件，支持新增任务无需修改Core.py
-2. 对所有的def、class、类名进行统一命名规范、功能注释
-3. 对Config.yaml进行优化，将代码中部分功能移动到Config.yaml中
+2. 对所有的def、class、类名进行命名规范统一、功能注释
+3. Config.yaml变更：将代码中部分功能移动到Config.yaml中
 4. 对导入到库文件进行分类
 
-【功能增强】
-1. 对库文件缺失新增自动检测网络连通性，如网络可达Pip源，则自动安装库文件
-2. 升级机制优化 - 支持TASK目录的版本升级
+【功能变更】
+1. 库文件缺失检测：新增自动检测网络连通性，如网络可达Pip源，则自动安装库文件
+2. 升级机制变更：支持TASK目录的版本升级
 
 ##########################################################################################################################################################
-V5版本 - 进度优化与性能提升
+V5版本 - 进度显示与性能变更
 ##########################################################################################################################################################
 
-【进度显示优化】
-1. 进度显示：修改为更简化的显示方式
+【进度显示变更】
+1. 进度显示：显示方式调整
 2. DeviceDIFFTask进度显示：从单进度改为多进度显示，拆分为有N个sheet页面总进度就为N
 
-【性能优化】
-1. 减少了任务对服务器的瞬时冲击，执行礼貌抓取（Polite Crawling），并发、超时与"随机延时"做成一个开关，默认就能显著减压，随机抖动可避免同步冲击
+【性能变更】
+1. 任务对服务器的瞬时冲击减少，执行礼貌抓取（Polite Crawling），并发、超时与"随机延时"做成一个开关，随机抖动可避免同步冲击
 
 【新增功能】
 1. 新增TASK任务：ASACompareTask，实现对主备防火墙配置对比
@@ -164,7 +190,7 @@ V3版本 - 升级逻辑修复
 【新增功能】
 1. 新增功能："LINKAS N9K ASA含策略类设备配置备份输出EXCEL基础任务"，V3版本仅实现了ASA的备份功能
 ##########################################################################################################################################################
-V2版本 - 功能优化与修复
+V2版本 - 功能变更与修复
 ##########################################################################################################################################################
 
 【取消功能】

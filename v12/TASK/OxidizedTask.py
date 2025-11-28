@@ -1,4 +1,36 @@
 # Oxidized 设备配置本地备份任务
+#
+# 技术栈:Python, requests, lxml, XPath, HTML解析, 文件IO, zipfile压缩
+# 目标:从Oxidized服务器备份设备配置，支持多服务器并行处理，实现设备级和节点级统计分离
+#
+# 处理逻辑:状态检查 → 设备分组 → 配置获取 → 本地保存 → 统计汇总 → 日志压缩
+#
+# 状态检查优化:
+# - 使用XPath检查Last Status：//*[@id='nodesTable']/tbody/tr/td[4]/div
+# - 检查div元素的class属性（success/no_connection/never/failing）
+# - 备用方案：检查内部span[@style="visibility: hidden"]元素内容
+# - no_connection状态：直接标记为WARN，跳过备份请求，不需要检查URL
+# - success状态：尝试备份配置，但需检查URL响应内容是否为"node not found"
+# - never/failing状态：直接标记为WARN，跳过备份请求
+# - 其他状态：标记为WARN，跳过备份请求
+# - 响应内容检查：检测"node not found"响应，标记为WARN
+# - 避免无效请求，提升任务执行效率
+#
+# 架构重构优化:
+# - 设备级统计：ERROR和OK计数只涉及备份设备，不包含节点统计
+# - 节点级统计：WARN计数只涉及备份节点失联，不包含设备失败
+# - LOG输出：只记录每个设备的ERROR和OK，不记录节点统计信息
+# - REPORT输出：只统计节点ERROR和OK数量，不显示具体设备信息
+# - 设备过滤：支持基于前缀的设备过滤，可配置忽略特定设备（如HX07、TWIDC、FG）
+# - 日志压缩：自动将当日所有.log文件压缩为Oxidized_设备配置备份-{日期}.zip
+#
+# 配置验证:
+# - 验证OxidizedTask专用配置：检查base_urls配置项
+# - 验证设备过滤配置：检查ignore_device_prefixes配置项
+# - 独立配置验证：在任务初始化时验证所需配置，不依赖Core.py
+#
+# 输出:LOG/OxidizedTask/OxidizedTaskBackup/YYYYMMDD-设备名.log（成功设备配置文件，V10新结构：从LOG/日期/OxidizedTaskBackup迁移），压缩后生成YYYYMMDD-OxidizedTaskBackup.zip文件
+# 配置说明:支持多服务器配置，自动处理设备分组和状态检查，支持设备过滤和日志压缩
 
 # 导入标准库
 import os

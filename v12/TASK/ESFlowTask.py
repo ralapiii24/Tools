@@ -1,4 +1,15 @@
 # FLOW 服务器巡检任务
+#
+# 技术栈:Python, SSH, Paramiko, 正则表达式, Docker, Elasticsearch API
+# 目标:检查 Flow 服务器的健康状态和关键服务
+# 继承自 LinuxServerBase，包含 ESBaseTask 的所有通用检查
+#
+# ESFlowTask 额外检查:
+# 关键端口:netstat -tulnp 寻找 5601/9200/9300/4739/2055/6343 等（来自 flow_checks.require_ports，并有兜底端口集合）
+# 容器状态:docker ps --format "{{.Names}} {{.Status}}"，要求 opt-kibana-1、elastiflow-logstash、elastiflow-elasticsearch 等容器处于 Up；
+# 若 docker 失败，会回退到端口命中结果作为提示
+# ES 索引大小:/_cat/indices?v 过滤 index_prefix（默认 elastiflow-4.0.1-），解析末列大小（支持 K/M/G/T），超过 index_size_limit_bytes（默认 1GiB）则记录
+# Segments 行数:/_cat/segments?v 针对非今昨的索引，若行数 > segment_max_non_recent（默认 3）则 WARN
 
 # 导入标准库
 import re

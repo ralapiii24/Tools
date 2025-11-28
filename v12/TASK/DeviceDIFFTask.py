@@ -1,4 +1,27 @@
-# 关键设备DIFF任务
+# 关键设备配置按周期DIFF审计任务
+#
+# 技术栈:openpyxl、正则表达式、difflib
+# 目标:自动选日期做 DIFF，对比不同时期的设备配置变化
+#
+# 自动选日期做 DIFF:
+# 日 DIFF（每天）:今天 vs 昨天；
+# 周 DIFF（仅周日执行）:今天(周日) vs 本周一；若周一文件不存在，则从周一往后顺延到周六，取本周最早有文件的那天。输出名包含"周DIFF"；
+# 月 DIFF（仅月末执行）:今天(当月最后一天) vs 本月 1 号；若 1 号不存在，则从 1 号往后顺延到昨日，取本月最早有文件的那天。输出名包含"月DIFF"
+#
+# 读取两期"基础任务 Excel"并对比:
+# 输入文件目录:LOG/DeviceBackupTask/（V10新结构：从ACL/SourceACL迁移）
+# 文件名模式:{YYYYMMDD}-关键设备配置备份输出EXCEL基础任务.xlsx
+# 只要有改动，就生成 unified diff 行列表（含 ---/+++/@/@、加号行、减号行、上下文行）
+# 着色:+ 行绿色、- 行红色，其它行（---/+++/@/@/空格开头）黑色
+#
+# 输出:
+# 输出目录:LOG/DeviceDIFFTask/（V10新结构：从ACL/DeviceDIFFTask迁移）
+# 文件名:
+# - 日:{今天}-关键设备DIFF.xlsx
+# - 周:{今天}-周DIFF-关键设备DIFF.xlsx
+# - 月:{今天}-月DIFF-关键设备DIFF.xlsx
+#
+# 配置说明:支持Ignore_DIFF.yaml忽略规则
 
 # 导入标准库
 import datetime as dt

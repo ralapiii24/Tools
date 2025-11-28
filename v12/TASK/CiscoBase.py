@@ -1,4 +1,24 @@
-# Cisco ACL 解析基础模块
+# Cisco ACL 解析基础模块（V11新增）
+#
+# 技术栈:Python, 正则表达式, ipaddress, openpyxl, 网络地址计算
+# 目标:统一ACL解析功能，提供通用的ACL规则解析和Excel处理函数，供多个ACL任务共用
+#
+# 主要功能:
+# - parse_acl: 统一ACL规则解析函数，支持NX-OS CIDR格式和IOS-XE wildcard/host混合格式，解析源/目的网段、协议、端口等信息
+# - find_acl_blocks_in_column: 在Excel列中查找ACL块，支持登录ACL结束标记检测（大小写不敏感，匹配包含vty和ip的ip access-list行）
+# - extract_acl_rules_from_column: 从Excel列中提取ACL规则列表
+# - is_acl_rule: 判断是否为ACL规则行
+# - 服务端口解析: service_to_port函数，支持服务名和端口号转换
+#
+# 使用场景:
+# - ACLCrossCheckTask: 使用parse_acl、find_acl_blocks_in_column、extract_acl_rules_from_column
+# - ACLArpCheckTask: 使用find_acl_blocks_in_column
+# - ACLDupCheckTask: 使用find_acl_blocks_in_column
+#
+# 优势:
+# - 减少代码重复: 统一ACL解析逻辑，一处修改，多处受益
+# - 易于扩展: 新增ACL格式支持时，只需在CiscoBase中更新
+# - 提升维护性: 统一的解析逻辑，便于测试和调试
 
 # 导入标准库
 import re

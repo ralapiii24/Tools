@@ -1,4 +1,40 @@
 # ACL 重复检查任务
+#
+# 技术栈:openpyxl、ipaddress、正则表达式、图论算法、CiscoBase（V11新增）
+# 目标:分析ACL规则间的覆盖关系，识别可回收的重复策略
+#
+# 处理逻辑:
+# 解析ACL规则:使用CiscoBase统一解析（V11优化），支持NX-OS CIDR格式和IOS-XE wildcard/host混合格式
+# ACL定界:使用CiscoBase.find_acl_blocks_in_column统一处理（V11优化）
+# 覆盖关系检测:分析规则A是否覆盖规则B（动作相同、协议匹配、端口匹配、源/目的网段包含关系）
+# 图论算法:使用连通分量算法对覆盖规则进行分组
+# 可视化标注:每组使用不同颜色标记，最大规则（不被覆盖的）标红
+# 统计报告:生成详细的覆盖组统计和可回收策略数量
+#
+# 输入文件:LOG/DeviceBackupTask/{日期}-关键设备配置备份输出EXCEL基础任务.xlsx（V10新结构：从ACL/SourceACL迁移）
+# 输出文件:LOG/ACLDupCheckTask/{日期}-大段覆盖包含明细ACL检查.xlsx（V10新结构：从ACL/ACLDupCheckTask迁移）
+#
+# 输出:统计覆盖组数量、保留规则数、可回收规则数，生成带颜色标注的Excel报告和Report工作表
+#
+# 统计指标说明:
+# - 覆盖组数量:具有覆盖关系的规则分组数（每组包含相互覆盖的规则）
+# - 保留规则数:每组中最大规则数量（红色标记，建议保留，覆盖其他规则）
+# - 可回收规则数:每组中被覆盖的规则数量（默认字体，可删除，被其他规则覆盖）
+# - 参与分析规则数:所有参与覆盖分析的规则总数（不包括无覆盖关系的规则）
+#
+# 输出优化:
+# - 移除LOG和REPORT中的JSON格式元数据，只保留清晰的中文描述
+# - 优化输出信息，使统计指标含义更加清晰易懂
+# - 提高用户对ACL覆盖分析结果的理解和使用效率
+#
+# 配置说明:
+# - 输入文件:自动使用当天日期的ASA备份文件（LOG/DeviceBackupTask/）
+# - 输出目录:LOG/ACLDupCheckTask/（V10新结构：从ACL/ACLDupCheckTask迁移）
+# - 任务名称:大段覆盖包含明细ACL检查
+# - 汇总输出控制:通过Config.yaml的enable_summary_output开关控制汇总统计输出，默认关闭（V10新增）
+# - 所有配置已固定在Python文件中，无需额外配置
+# task_switches:
+#   ACLDupCheckTask: true  # 启用ACL重复检查任务
 
 # 导入标准库
 import os

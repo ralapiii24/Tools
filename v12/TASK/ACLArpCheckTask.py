@@ -1,4 +1,34 @@
 # ACL 无 ARP 匹配检查任务
+#
+# 技术栈:openpyxl、ipaddress、正则表达式、网络地址计算、xlsxwriter、CiscoBase（V11新增）
+# 目标:识别源/目的两端均无 ARP（ARP 表中仅统计非 INCOMPLETE）的 ACL 规则
+#
+# 处理逻辑:
+# 读取ARP:解析 ARP.log，提取有 MAC 的 IP 作为"有 ARP"；INCOMPLETE 视为"无 ARP"
+# 解析ACL:使用CiscoBase统一解析（V11优化），支持 NX-OS CIDR、IOS-XE host/wildcard/混写、ASA any 关键字，提取源/目的网段
+# ACL定界:使用CiscoBase.find_acl_blocks_in_column统一处理（V11优化）
+# 多端口支持:支持eq www 443、eq 3306 3366等多端口token解析
+# 特殊网段处理:支持配置特殊网段列表，特殊网段不参与 ARP 匹配检查
+# 判定逻辑:根据源/目的是否为 any、特殊网段等情况，采用不同的匹配策略
+# 多设备处理:按工作表逐个处理设备配置，进度显示为N/N（与ACLDupCheckTask一致）
+#
+# 输出:生成 {YYYYMMDD}-ACL无ARP匹配检查.xlsx，含 Sheet/Device/Row/Rule/SrcNetwork/DstNetwork 明细
+# 红色标记:无 ARP 匹配且非特殊网段的网络地址标红显示
+#
+# 配置说明:
+# - 输入文件:自动使用当天日期的ASA备份文件（LOG/DeviceBackupTask/）
+# - ARP日志文件:CHECKRULE/ARP.log
+# - 输出目录:LOG/ACLArpCheckTask/（V10新结构：从ACL/ACLArpCheckTask迁移）
+# - 脚本输出目录:LOG/ACLArpCheckTask/ConfigureOutput/（V10新结构：从CONFIGURATION/ACLArpCheckTask/日期迁移，每次任务自动清空）
+# - 脚本输出文件名格式:{日期}-{sheet_name}操作脚本.log 和 {日期}-{sheet_name}回退脚本.log
+# - 任务名称:ACL无ARP匹配检查
+# - 忽略第三段为86,88,108,153的IP（X.X.86.X, X.X.88.X, X.X.108.X, X.X.153.X 全部忽略）
+# - 检测范围:只检测在platform_network_map（公共配置settings.platform_network_map）内的网络，不在平台网段内的网络不检测（V11优化）
+# - 脚本输出:操作脚本和回退脚本，根据原始ACL定义是否包含extended关键字自动决定是否添加extended（支持cat1不带extended和cat2带extended的区分，V11优化）
+# - 汇总输出控制:通过Config.yaml的enable_summary_output开关控制汇总统计输出，默认关闭
+# - 依赖库:xlsxwriter
+# task_switches:
+#   ACLArpCheckTask: true  # 启用 ACL 无 ARP 匹配检查
 
 # 导入标准库
 import os

@@ -1,4 +1,50 @@
 # ASA 域名提取和检测任务
+#
+# 技术栈:socket、正则表达式、DNS解析、文件IO、openpyxl
+# 目标:从 Excel 源文件中提取站点（仅 FW01 列），进行域名检测与标色，并支持基于手工清单的脚本生成
+#
+# 处理逻辑:
+# - 站点来源: 读取 LOG/DeviceBackupTask/{日期}-关键设备配置备份输出EXCEL基础任务.xlsx 的各站点 sheet（V10新结构：从ACL/SourceACL迁移）
+# - 域名提取: 仅扫描 FW01(-FRP) 列，支持完整域名与子串提取，跳过 URL/NAT/host-range-subnet/domain-name
+# - DNS检测: 先加载本地缓存，未命中再解析；DNS不可达降级执行（仅缓存）
+# - Excel标色: 保留源样式，失败标红并按场景底色区分；对象组/绑定行联动标色
+# - 稳健输出: 每次任务强制删除并重建输出Excel，确保与源Excel一致（V10优化）
+# - 输出优化: 单站点输出合并为单行汇总，静默中间OK日志（V10优化）
+#
+# 脚本生成（手工回收分支）:
+# - 域名来源: 仅使用 CHECKRULE/ManualDomainRecovery.log（V10新结构：从DOMAIN迁移，开启 use_manual_source_first 时且非空）
+# - 输出: LOG/ASADomainCheckTask/ConfigureOutput/{日期}-{SITE}-回退脚本.log / 操作脚本.log（V10新结构：从CONFIGURATION/ASADomainCheckTask/日期迁移，每次任务自动清空ConfigureOutput目录）
+# - 逻辑: 先从回退脚本（按 FW01 列标色顺序）提取，再派生操作脚本（解绑→删除，保持顺序一致）
+#
+# DNS 缓存（统一文件）:
+# - 路径: CHECKRULE/DNSLocalCache.log（V10新结构：从DOMAIN迁移），三态：S=特殊白名单、T=临时成功、D=失败
+# - 行为: 月初自动清理 T；D→T→S 自动晋级；S 优先且不被失败覆盖
+#
+# 日志优化:
+# - 支持 settings.suppress_ok_logs 抑制 OK 级日志
+# - 静默忽略无FW01表头的 sheet
+# - 静默"已从源Excel初始化输出文件"OK日志（V10优化）
+#
+# 输出文件:
+# - LOG/ASADomainCheckTask/{日期}-ASA域名提取及检测任务.xlsx（V10新结构：从DOMAIN/ASADomainCheckTask迁移）
+# - LOG/ASADomainCheckTask/ConfigureOutput/{日期}-ManualDomainRecovery.xlsx（模板标色，V10新结构：从CONFIGURATION迁移）
+#
+# 日期逻辑:自动扫描LOG目录，按日期分组处理，月初第一天清空临时缓存
+# 站点识别:使用与ASACompareTask相同的站点提取规则，确保一致性
+#
+# 缓存机制:
+# - CHECKRULE/DNSLocalCache.log（V10新结构：从DOMAIN迁移）: 统一DNS缓存文件，三态：S=特殊白名单、T=临时成功、D=失败
+# - 优先使用缓存，缓存未命中时查询DNS服务器
+# - 自动去重：添加域名时检测重复，避免重复写入
+# - 缓存文件统一放在CHECKRULE目录下，便于管理（V10新结构）
+#
+# 失败跟踪:
+# - 每天失败域名保存到LOG/日期/DNSQueryFalse.log（V10: 已废弃，不再使用）
+# - 对比前一天失败域名，找出恢复的域名（V10: 已废弃，不再使用）
+# - 恢复域名保存到LOG/日期/DNSQueryDontDelete.log（V10: 已废弃，不再使用）
+# - 恢复域名添加到特殊缓存，REPORT中WARN提示
+#
+# 配置说明:所有配置硬编码在Python文件中，自动扫描LOG目录，支持fw01-frp和fw02-frp文件格式
 
 # 导入标准库
 import os

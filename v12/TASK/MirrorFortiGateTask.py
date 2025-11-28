@@ -1,4 +1,15 @@
 # 镜像飞塔防火墙巡检任务
+#
+# 技术栈:Paramiko SSH
+#
+# 指标:
+# 日志盘占用:diagnose sys logdisk usage → 解析 used/total MB → 与 fortigate.thresholds.disk_percent 比较（默认 WARN≥60，CRIT≥80）
+# CPU/内存/Uptime:get system performance status；如遇 --More-- 分页或缺失 Uptime，则切换交互分页（空格翻页）或再跑 get system status 兜底；
+# CPU:由 idle% 推算 used%
+# MEM:解析 used( xx % )
+# Uptime:支持多种格式解析（天/小时/分钟混排、中文/英文/冒号/空格等）
+#
+# 输出:针对每台主机分别给出"日志盘 / CPU / 内存 / 启动时间"的分级结果；解析失败会给 ERROR
 
 # 导入标准库
 import re

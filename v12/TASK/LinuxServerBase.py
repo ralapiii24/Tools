@@ -1,4 +1,15 @@
-# Linux服务器巡检基类
+# Linux服务器巡检基类（V11从Base.py拆分）
+#
+# 技术栈:Python, SSH, Paramiko, 正则表达式
+# 目标:提供 Linux 服务器巡检的通用功能，供多个服务器巡检任务共用
+#
+# 适用:ESLogstashTask / ESBaseTask / ESFlowTask
+#
+# 通用检查:
+# 根分区占用:df -h 解析 / 的 used%，与 servers.thresholds.disk_percent 比较（默认 WARN≥50，CRIT≥80）
+# 内存占用:free -m 解析 used/total 推算占用率，各类型有不同阈值:
+# - LOGSTASH:WARN≥50，CRIT≥80
+# - ES/FLOW:WARN≥80，CRIT≥90
 
 # 导入标准库
 from typing import Dict, Optional, Tuple

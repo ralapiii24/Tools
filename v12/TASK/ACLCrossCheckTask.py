@@ -1,4 +1,51 @@
 # N9K&LINKAS ACL交叉检查任务
+#
+# 技术栈:openpyxl、ipaddress、正则表达式、网络地址计算、图论算法、Excel样式处理、CiscoBase（V11新增）
+# 目标:实现跨Sheet的ACL规则匹配检查，识别不同Sheet之间的ACL规则匹配关系，使用多颜色标记系统区分不同类型的匹配规则
+#
+# 处理逻辑:
+# - 输入文件:自动使用当天日期的DeviceBackupTask输出文件（LOG/DeviceBackupTask/{日期}-关键设备配置备份输出EXCEL基础任务.xlsx）
+# - 设备分类:自动识别cat1（N9K核心交换机）、cat2（LINKAS接入交换机）、cat6（OOB-DS交换机）设备
+# - 规则解析:使用CiscoBase.parse_acl统一解析（V11优化），支持NX-OS CIDR格式和IOS-XE wildcard/host混合格式，解析源/目的网段、协议、端口等信息
+# - ACL定界:使用CiscoBase.find_acl_blocks_in_column和extract_acl_rules_from_column统一处理（V11优化）
+# - 跨Sheet匹配:实现13个步骤的复杂匹配逻辑（步骤4-13），包括完全匹配、覆盖匹配、包含匹配、平台外覆盖、特殊规则检查等
+# - 双向检查:步骤4-10支持双向检查（Sheet A -> Sheet B和Sheet B -> Sheet A方向），确保匹配的完整性
+# - 颜色标记:使用多颜色标记系统（绿色、蓝色、橙色、紫色、深黄色）区分不同类型的匹配规则
+# - 颜色优先级:绿色和蓝色具有最高优先级，不会被后续步骤覆盖；橙色、紫色、深黄色按优先级顺序标记
+# - 自动标记:同一Sheet内相同cat2规则自动标记相同颜色，确保一致性
+#
+# 输出文件:LOG/ACLCrossCheckTask/{日期}-N9K&LINKAS ACL交叉检查.xlsx
+# 输出内容:
+# - 每个Sheet保留原始配置内容
+# - 匹配规则使用不同颜色标记（绿色、蓝色、橙色、紫色、深黄色）
+# - 颜色标记说明在染色逻辑文档中详细说明
+#
+# 13个步骤说明:
+# - 步骤4:cat1完全匹配检查（标绿色）- cat1 vs cat2匹配相同（两个Sheet）+ cat1 vs cat1反向匹配 + cat2 vs cat2反向匹配
+# - 步骤5:cat1覆盖匹配检查（标绿色）- cat1 vs cat2覆盖（两个Sheet）+ cat1 vs cat1反向匹配 + cat2 vs cat2反向匹配
+# - 步骤6:cat2覆盖cat1匹配检查（标绿色）- cat2 vs cat1覆盖（两个Sheet）+ cat1 vs cat1反向匹配 + cat2 vs cat2反向匹配
+# - 步骤7:cat6完全匹配检查（标蓝色）- cat6 vs cat2匹配相同（两个Sheet）+ cat6 vs cat6反向匹配相同 + cat2 vs cat2反向匹配相同
+# - 步骤8:cat6覆盖匹配检查（标蓝色）- cat6 vs cat2覆盖（两个Sheet）+ cat6 vs cat6反向匹配相同 + cat2 vs cat2反向匹配相同
+# - 步骤9:cat2覆盖匹配cat6检查（标蓝色）- cat2 vs cat6覆盖（两个Sheet）+ cat6 vs cat6反向匹配相同 + cat2 vs cat2反向匹配相同
+# - 步骤10:cat6-cat1包含匹配（标蓝色）- A.cat6覆盖A.cat2 + A.cat6与B.cat1双向包含/反向匹配 + A.cat2与B.cat2反向匹配 + B.cat1覆盖B.cat2
+# - 步骤11:平台外覆盖检查（标橙色）- cat1覆盖cat2规则，源为本平台，目的为非platform_network_map地址
+# - 步骤12:特殊规则检查（标紫色）- cat1源地址为本平台地址，目的地址为特殊规则定义IP段地址，同平台cat1覆盖cat2，跨平台cat2反向检查通过
+# - 步骤13:特殊地址段检查（标深黄色）- cat2规则源地址和目的地址都在任何Sheet的special_network_map中
+#
+# 性能优化:
+# - 使用预构建索引避免重复计算（cat2反向匹配索引、cat6与cat1包含关系索引、cat1覆盖cat2索引）
+# - 优化查找效率（将列表转换为set使用O(1)查找替代O(n)的any()函数）
+# - 限制检查范围（组合数超过50000时限制检查前50000个）
+# - 文件保存优化（默认只在最后保存一次，提升性能）
+#
+# 配置说明:
+# - 输入文件:自动使用当天日期的DeviceBackupTask输出文件
+# - 输出目录:LOG/ACLCrossCheckTask/
+# - 任务名称:N9K&LINKAS ACL交叉检查
+# - 配置依赖:platform_network_map（平台网段映射，使用公共配置settings.platform_network_map）、special_network_map（特殊网段映射）、special_rule_networks（特殊规则网段列表）
+# - 详细染色逻辑说明:参考TASK/ACLCrossCheckTask_染色逻辑说明.md文档
+# task_switches:
+#   ACLCrossCheckTask: true  # 启用N9K&LINKAS ACL交叉检查
 
 # 导入标准库
 import os

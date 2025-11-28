@@ -1,4 +1,18 @@
-# ES N9K 异常日志巡检任务
+# ES N9K 异常日志巡检任务（Kibana 上 Cisco N9K 日志异常扫描）
+#
+# 技术栈:Python, requests, JSON, 正则表达式
+# 目标:在一组 kibana_bases 中挑选可用的 Kibana（调用 /api/status），然后经 Kibana 反代查询 ES
+#
+# 索引匹配:index_pattern: "*-n9k-*-*"
+# 时间范围:time_gte: now-3d 到 time_lt: now（可改）
+# 取数方式:_search?scroll 滚动查询，字段 @timestamp 与 message
+#
+# 告警提取:从 message 中解析 Cisco 标准样式的严重级别（形如 %...-<sev>-... 里的 <sev> 数字）；
+# 映射:sev<=2 → CRITICAL，sev==3 → ERROR，sev==4 → WARN，sev>=5 或无 sev → OK
+#
+# 忽略列表:按 Ignore_alarm.yaml 的 message_contains 与 message_regex 过滤噪声
+#
+# 输出:统计 scanned/matched，给出最严重等级与最多 10 条样例（时间戳、sev、sev 文本、等级、截断消息）
 
 # 导入标准库
 import json

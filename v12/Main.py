@@ -1,4 +1,36 @@
 # 主程序入口文件：整合了依赖检查和任务调度功能
+#
+# 主要职责:
+# Main.py:主程序入口文件，整合了所有核心功能
+#
+# 第一部分：运行时环境检查功能（原 RuntimeEnvCheck.py）
+# - 环境预检：核查 pyyaml/tqdm/requests/urllib3/lxml/paramiko/playwright/openpyxl/xlsxwriter 等包，并确认已安装 Playwright Chromium
+# - 失败会写入报告到 REPORT/<YYYYMMDD>_DependencyCheck.log，并退出（阻止巡检）
+# - 支持多个pip镜像源（官方、阿里云、清华），网络可达时自动安装缺失依赖
+# - 支持跨平台（Windows、Linux、macOS），自动识别平台并安装相应的系统依赖
+# - 支持 --check 参数：只检查依赖，不执行巡检
+# - 支持 --install 参数：安装所有依赖包
+#
+# 第二部分：任务调度功能（原 Core.py）
+# - 多任务巡检（FXOS/FortiGate镜像/Oxidized配置抓取/各类Linux服务器SSH获取CPU内存硬盘指标/Kibana ESN9K日志扫描/Flow服务检查/ACL策略分析/服务检查），写入日报与任务明细
+# - V10新结构：创建任务日志目录:LOG/<TaskName>/；日报目录:REPORT/
+# - 依次运行任务并记录结果；按任务生成明细日志（LOG/任务类名/YYYYMMDD-任务显示名.log），并在 REPORT/<YYYYMMDD>巡检日报.log 写入汇总与异常摘要
+# - 从 YAML/Config.yaml 读取配置；settings.show_progress 控制 tqdm 进度条；所有任务输出统一分级:OK/WARN/CRIT/ERROR
+# - 每个任务为 BaseTask 子类（V11: BaseTask位于TaskBase.py）:实现 items()（要巡检的对象列表）与 run_single(item)（单对象巡检逻辑）
+# - 结果对象 Result(level, message, meta) 可带 meta 附加信息（如样例、原始行等）
+# - 配置验证重构:将具体任务的配置检查从任务调度逻辑迁移到各自任务类中，实现单一职责原则
+#
+# 执行流程:依赖预检 → 执行巡检任务
+#
+# REPORT文件格式优化:
+# - 添加时间隔离符号：==================== YYYY-MM-DD HH:MM:SS 运行 ====================
+# - 时间戳格式：#################### YYYY-MM-DD HH:MM:SS 运行 ####################
+# - 任务列表格式化：启用的任务每行一个，禁用的任务每行一个
+# - 最新运行追加到顶部：新内容在文件顶部，历史记录在底部
+# - 保持历史记录：每次运行保留之前的记录，便于查看历史
+#
+# 输出:REPORT/日期巡检日报.log（每日汇总报告），LOG/任务类名/YYYYMMDD-任务显示名.log（单任务详细日志，V10新结构）
+# 配置说明:支持task_switches任务开关控制，自动创建目录结构
 
 # 导入标准库
 import json

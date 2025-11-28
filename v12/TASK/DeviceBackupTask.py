@@ -1,4 +1,31 @@
 # 关键设备配置备份输出EXCEL基础任务
+#
+# 技术栈:openpyxl、正则表达式
+# 目标:将N9K ASA设备配置备份并输出为Excel格式，为后续ACL分析提供基础数据
+#
+# 处理逻辑:
+# 设备配置解析:从LOG目录读取设备配置文件，支持智能分组策略；
+# 策略提取:解析ACL策略配置，提取关键信息；
+# 配置截取优化:根据设备类别智能截取相关配置段，减少冗余信息；
+# Excel输出:按设备类型和站点生成Sheet，包含设备配置和策略信息
+#
+# 输入文件:LOG目录下的设备配置文件（LOG/OxidizedTask/OxidizedTaskBackup/）
+# 输出文件:LOG/DeviceBackupTask/{日期}-关键设备配置备份输出EXCEL基础任务.xlsx（V10新结构：从ACL/SourceACL迁移）
+#
+# 设备分类规则:
+# - cat1: N9K核心交换机（按站点分组）
+# - cat2: LINKAS接入交换机（按站点分组）
+# - cat3: ASA防火墙（按站点分组）
+# - cat4: LINK-DS交换机（统一到LINKDS工作表）
+# - cat5: BGP设备（统一到BGP工作表）
+# - cat6: OOB-DS交换机（按站点分组）
+#
+# 配置截取规则:
+# - NXOS N9K:从"! show running-config"开始截取
+# - IOS-XE:从"! Last configuration change"开始截取
+# - ASA FW:从"ASA Version"开始截取
+#
+# 输出:生成标准化的ACL配置Excel文件，供其他ACL分析任务使用
 
 # 导入标准库
 import os

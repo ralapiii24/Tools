@@ -1,4 +1,12 @@
 # LOGSTASH 服务器巡检任务
+#
+# 技术栈:Python, SSH, Paramiko, 正则表达式
+# 目标:检查 Logstash 服务器的健康状态
+# 继承自 LinuxServerBase，包含 ESBaseTask 的所有通用检查
+#
+# 通用检查（来自 LinuxServerBase）:
+# 根分区占用:df -h 解析 / 的 used%，与 servers.thresholds.disk_percent 比较（默认 WARN≥50，CRIT≥80）
+# 内存占用:free -m 解析 used/total 推算占用率，LOGSTASH 阈值: WARN≥50，CRIT≥80
 
 # 导入标准库
 # (无标准库依赖)

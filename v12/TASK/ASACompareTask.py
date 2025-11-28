@@ -1,4 +1,14 @@
 # ASA防火墙主备对比检查任务
+#
+# 技术栈:openpyxl、正则表达式、difflib
+# 目标:对比主备防火墙配置差异，生成带颜色编码的Excel报告
+#
+# 工作流程包括:扫描LOG目录查找设备文件，提取interface Port-channel到failover的配置段，对比算法过滤重新排序差异，为缩进行显示父级配置，生成带颜色编码的Excel报告
+# 生成以日期命名的Excel文件，每个HX站点对应一个Sheet，包含站点信息、配置差异详情、差异统计和配置对比结果，为缩进行的配置显示父级配置
+# 将对比结果填充到Excel中，包括内容不同的配置行、仅在FW01-FRP中存在的配置、仅在FW02-FRP中存在的配置，并添加统计信息
+#
+# 输入文件:LOG/OxidizedTask/OxidizedTaskBackup/（V10新结构：从LOG/日期/OxidizedTaskBackup迁移）
+# 输出文件:LOG/ASACompareTask/{日期}-ASA防火墙主备对比检查.xlsx（V10新结构：从ACL/ASACompareTask迁移）
 
 # 导入标准库
 import os

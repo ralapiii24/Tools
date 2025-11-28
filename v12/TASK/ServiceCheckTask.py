@@ -1,4 +1,26 @@
 # 服务检查任务
+#
+# 技术栈:Python, SSH, 正则表达式, 系统服务检查
+# 目标:检查NTP Chronyd和TACACS+ tac_plus服务状态，确保关键服务正常运行
+#
+# 处理逻辑:SSH连接 → 服务状态检查 → 进程检查 → 端口检查 → 状态解析 → 结果汇总
+#
+# Chronyd NTP服务检查:
+# - systemctl status chronyd: 检查服务运行状态和运行时间
+# - chronyc tracking: 检查NTP同步状态（Reference ID、Stratum、Last offset）
+# - ps -ef | grep chronyd: 检查chronyd进程
+# - ss -ulpn | grep chronyd: 检查UDP 123端口监听
+# - 检查要点: Reference ID不为0.0.0.0，Stratum不为16，Last offset小于1秒
+#
+# TACACS+服务检查:
+# - systemctl status tac_plus: 检查服务运行状态和运行时间
+# - ps -ef | grep tac_plus: 检查tac_plus进程
+# - ss -tulnp | grep 49: 检查TCP 49端口监听
+# - 检查要点: 服务运行正常，进程存在，端口监听正常
+#
+# 输出:LOG/ServiceCheckTask/YYYYMMDD-服务检查任务.log（详细检查日志）
+# 配置说明:复用ESLogstashTask配置，使用相同的SSH认证和服务器列表，避免配置重复
+# 特点:支持多服务器并行检查，确保关键服务正常运行
 
 # 导入标准库
 import re

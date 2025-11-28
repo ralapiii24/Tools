@@ -1,4 +1,12 @@
 # FXOS WEB 巡检任务
+#
+# 技术栈:Playwright（Chromium，无头模式），自动忽略自签名/不可信证书
+# 目标:对 fxos.devices 中的每个 FXOS 管理地址进行自动登录验证
+#
+# 交互细节:支持自动模拟 Enter/Tab/Continue/Proceed/OK/确认/确定 点击，处理浏览器安全/提示对话；登录后等待指定 XPath 成功标志
+#
+# 输出:每台设备 "登录成功/失败"
+# 输出级别:登录成功为OK级别，登录失败为WARN级别（降低网络临时故障或设备暂时不可访问的告警级别）
 
 # 导入标准库
 from typing import Dict
