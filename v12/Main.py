@@ -408,6 +408,7 @@ def run_inspection_tasks():
         "ACLArpCheckTask": "ACLArpCheckTask-ACL无ARP匹配检查任务",
         "ACLCrossCheckTask": "ACLCrossCheckTask-N9K&LINKAS ACL交叉检查任务",
         "ASADomainCheckTask": "ASADomainCheckTask-ASA域名提取和检测任务",
+        "ASATempnetworkCheckTask": "ASATempnetworkCheckTask-ASA临时出网地址检查",
         "ServiceCheckTask": "ServiceCheckTask-服务检查任务(NTP TACACS+)",
         "LogRecyclingTask": "LogRecyclingTask-日志回收任务（月底最后一天执行）"
     }

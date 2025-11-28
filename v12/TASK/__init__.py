@@ -15,6 +15,7 @@ from .ACLDupCheckTask import ACLDupCheckTask
 from .ACLArpCheckTask import ACLArpCheckTask
 from .ACLCrossCheckTask import ACLCrossCheckTask
 from .ASADomainCheckTask import ASADomainCheckTask
+from .ASATempnetworkCheckTask import ASATempnetworkCheckTask
 from .ServiceCheckTask import ServiceCheckTask
 from .LogRecyclingTask import LogRecyclingTask
 
@@ -33,6 +34,7 @@ __all__ = [
     'ACLArpCheckTask',
     'ACLCrossCheckTask',
     'ASADomainCheckTask',
+    'ASATempnetworkCheckTask',
     'ServiceCheckTask',
     'LogRecyclingTask'
 ]
