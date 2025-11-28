@@ -797,10 +797,10 @@ class ACLCrossCheckTask(BaseTask):
             return {}
     
     # 预定义的Sheet名称到平台网段的映射（从配置文件加载）
-    PLATFORM_NETWORK_MAP = _load_platform_network_map()
+    PLATFORM_NETWORK_MAP = _load_platform_network_map.__func__()
     
     # 预定义的Sheet名称到特殊地址段的映射（从配置文件加载）
-    SPECIAL_NETWORK_MAP = _load_special_network_map()
+    SPECIAL_NETWORK_MAP = _load_special_network_map.__func__()
 
     # 初始化ACL交叉检查任务：设置固定配置参数
     def __init__(self):
