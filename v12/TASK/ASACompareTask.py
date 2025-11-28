@@ -108,62 +108,6 @@ class ASACompareTask(BaseTask):
         # 从设备名中提取站点名
         return extract_site_from_device(device_name)
 
-    # 检查配置采集是否失败：通过内容分析判断配置采集是否成功
-    @staticmethod
-    def _check_collection_failure(content_lines: list, device_name: str) -> bool:
-        # 检查配置采集是否失败
-        if not content_lines:
-            return True
-
-        # 将内容合并为字符串进行检查
-        content_text = '\n'.join(content_lines).lower()
-
-        # 检查明确的采集失败标识（更精确的匹配）
-        failure_indicators = [
-            'node not found',
-            'connection failed',
-            'unable to connect',
-            'authentication failed',
-            'access denied',
-            'no such file',
-            'device unreachable',
-            'oxidized error',
-            'collection failed',
-            'ssh connection failed',
-            'telnet connection failed',
-            'login failed',
-            'permission denied'
-        ]
-
-        # 检查是否包含明确的错误信息
-        for indicator in failure_indicators:
-            if indicator in content_text:
-                return True
-
-        # 检查内容是否过短（可能是错误信息）- 调整阈值
-        if len(content_text.strip()) < 500:
-            return True
-
-        # 检查是否包含ASA配置的典型标识
-        asa_indicators = [
-            'hostname',
-            'interface',
-            'ip address',
-            'access-list',
-            'nat',
-            'route',
-            'crypto',
-            'object',
-            'object-group'
-        ]
-
-        # 如果包含ASA配置标识，说明采集成功
-        for indicator in asa_indicators:
-            if indicator in content_text:
-                return False
-
-        return False
-
     # 提取配置段：从ASA配置文件中提取interface Port-channel到failover的关键配置段，包含相关的object配置
     @staticmethod
     def _extract_config_section(file_path: str) -> list:
@@ -223,27 +167,6 @@ class ASACompareTask(BaseTask):
             config_section = object_configs + config_section
 
         return config_section
-
-    # 处理采集失败情况
-    def _handle_collection_failure(self, worksheet, site: str, fw01_failed: bool, fw02_failed: bool, fw01_content: list, fw02_content: list):
-        failed_devices = []
-        if fw01_failed:
-            failed_devices.append("FW01-FRP")
-        if fw02_failed:
-            failed_devices.append("FW02-FRP")
-
-        if fw01_failed and fw02_failed:
-            worksheet.append(["原始内容oxidized采集失败，ASA防火墙主备对比失败！", "原始内容oxidized采集失败，ASA防火墙主备对比失败！"])
-        elif fw01_failed:
-            worksheet.append(["原始内容oxidized采集失败，ASA防火墙主备对比失败！", "配置采集成功"])
-            for line in fw02_content[:50]:
-                worksheet.append(["", line])
-        elif fw02_failed:
-            worksheet.append(["配置采集成功", "原始内容oxidized采集失败，ASA防火墙主备对比失败！"])
-            for line in fw01_content[:50]:
-                worksheet.append([line, ""])
-
-        self.add_result(Level.ERROR, f"站点 {site} 原始内容oxidized采集失败，ASA防火墙主备对比失败！失败设备: {', '.join(failed_devices)}")
 
     # 处理正常对比情况
     def _handle_normal_comparison(self, worksheet, site: str, fw01_content: list, fw02_content: list):
@@ -519,10 +442,6 @@ class ASACompareTask(BaseTask):
             missing_device = "FW01-FRP" if not fw01_content else "FW02-FRP"
             self.add_result(Level.WARN, f"站点 {site} {missing_device} 未找到interface Port-channel到failover的配置段")
 
-        # 检查配置采集是否成功
-        fw01_failed = self._check_collection_failure(fw01_content, f"{site}-FW01-FRP")
-        fw02_failed = self._check_collection_failure(fw02_content, f"{site}-FW02-FRP")
-
         # 创建Excel Sheet并添加标题信息
         worksheet = self._WB.create_sheet(title=site)
         worksheet.append([f"ASA防火墙主备对比 - {site}"])
@@ -534,10 +453,8 @@ class ASACompareTask(BaseTask):
         worksheet.append(["FW01-FRP", "FW02-FRP"])
         worksheet.append([])
 
-        # 处理采集失败或正常对比
-        if fw01_failed or fw02_failed:
-            self._handle_collection_failure(worksheet, site, fw01_failed, fw02_failed, fw01_content, fw02_content)
-        elif not fw01_content and not fw02_content:
+        # 处理正常对比
+        if not fw01_content and not fw02_content:
             # 两台设备都没有配置段的情况
             worksheet.append(["配置对比结果: 两台设备都无interface Port-channel到failover配置段", "配置对比结果: 两台设备都无interface Port-channel到failover配置段"])
         elif not fw01_content or not fw02_content:

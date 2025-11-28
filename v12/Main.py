@@ -373,8 +373,12 @@ require_keys(CONFIG, ["settings"], "root")
 SHOW_PROGRESS = bool(CONFIG["settings"].get("show_progress", True))
 
 # 主调度器：执行所有启用的巡检任务
-def run_inspection_tasks():
-    """执行所有启用的巡检任务并生成日报"""
+def run_inspection_tasks(specified_tasks: Optional[List[str]] = None):
+    """执行所有启用的巡检任务并生成日报
+    
+    Args:
+        specified_tasks: 如果指定，只运行这些任务（忽略Config.yaml中的开关设置）
+    """
     TODAY = datetime.now().strftime("%Y%m%d")
     SETTINGS = (CONFIG.get("settings") or {})
     BASE_LOG_DIR = SETTINGS.get("log_dir", "LOG")
@@ -392,9 +396,26 @@ def run_inspection_tasks():
     ENABLED_TASKS = []
     DISABLED_TASKS = []
 
-    for TASK_NAME in TASK_CLASSES:
-        # 检查任务开关，默认为 True（启用）
-        IS_ENABLED = TASK_SWITCHES.get(TASK_NAME, True)
+    # 如果指定了任务列表，验证任务是否存在
+    if specified_tasks:
+        INVALID_TASKS = [t for t in specified_tasks if t not in TASK_CLASSES]
+        if INVALID_TASKS:
+            print(f"错误：以下任务不存在: {', '.join(INVALID_TASKS)}")
+            print(f"可用的任务: {', '.join(sorted(TASK_CLASSES))}")
+            sys.exit(1)
+        # 只处理指定的任务
+        TASK_CLASSES_TO_PROCESS = specified_tasks
+    else:
+        # 处理所有任务
+        TASK_CLASSES_TO_PROCESS = TASK_CLASSES
+
+    for TASK_NAME in TASK_CLASSES_TO_PROCESS:
+        # 如果指定了任务列表，忽略Config.yaml中的开关设置
+        if specified_tasks:
+            IS_ENABLED = True
+        else:
+            # 检查任务开关，默认为 True（启用）
+            IS_ENABLED = TASK_SWITCHES.get(TASK_NAME, True)
 
         if not IS_ENABLED:
             DISABLED_TASKS.append(TASK_NAME)
@@ -573,13 +594,15 @@ def main():
     run_inspection_tasks()
 
 if __name__ == "__main__":
-    # 支持两种运行模式：
+    # 支持多种运行模式：
     # 1. 直接运行：执行完整流程（依赖检查 + 巡检任务）
     # 2. --check 参数：只检查依赖，不执行巡检
     # 3. --install 参数：安装所有依赖包
+    # 4. -任务名 参数：只运行指定的任务（可指定多个，忽略Config.yaml中的开关设置）
     
     if len(sys.argv) > 1:
-        if sys.argv[1] == "--check":
+        ARG = sys.argv[1]
+        if ARG == "--check":
             # 检查模式：只检查不安装
             PLATFORM_NAME = _get_platform_name()
             print(f"=== 依赖检查模式 ({PLATFORM_NAME}) ===\n")
@@ -588,7 +611,7 @@ if __name__ == "__main__":
                 print(MSG)
                 sys.exit(1)
             print(MSG)
-        elif sys.argv[1] == "--install":
+        elif ARG == "--install":
             # 安装模式：执行完整安装流程
             SUCCESS = install_all_dependencies()
             if not SUCCESS:
@@ -602,9 +625,40 @@ if __name__ == "__main__":
                 print(f"\n警告：安装后仍有问题:\n{MSG}")
                 sys.exit(1)
             print(MSG)
+        elif ARG.startswith("-") and len(ARG) > 1:
+            # 多任务模式：收集所有以 "-" 开头的任务名
+            SPECIFIED_TASKS = []
+            for ARG_ITEM in sys.argv[1:]:
+                if ARG_ITEM.startswith("-") and len(ARG_ITEM) > 1:
+                    TASK_NAME = ARG_ITEM[1:]  # 去掉开头的 "-"
+                    SPECIFIED_TASKS.append(TASK_NAME)
+                else:
+                    # 如果遇到非 "-" 开头的参数，说明参数格式错误
+                    print(f"错误：参数格式错误。任务名必须以 '-' 开头: {ARG_ITEM}")
+                    print("用法: python Main.py -任务名1 -任务名2 ...")
+                    sys.exit(1)
+            
+            if not SPECIFIED_TASKS:
+                print("错误：未指定任何任务")
+                sys.exit(1)
+            
+            # 先执行依赖预检
+            _run_preflight_or_exit()
+            # 运行指定的任务
+            if len(SPECIFIED_TASKS) == 1:
+                print(f"=== 单任务模式：只运行 {SPECIFIED_TASKS[0]} ===\n")
+            else:
+                print(f"=== 多任务模式：运行 {len(SPECIFIED_TASKS)} 个任务 ===\n")
+                print(f"指定的任务: {', '.join(SPECIFIED_TASKS)}\n")
+            run_inspection_tasks(specified_tasks=SPECIFIED_TASKS)
         else:
-            print(f"未知参数: {sys.argv[1]}")
-            print("用法: python Main.py [--check|--install]")
+            print(f"未知参数: {ARG}")
+            print("用法:")
+            print("  python Main.py                          # 运行所有启用的任务")
+            print("  python Main.py --check                  # 只检查依赖")
+            print("  python Main.py --install                # 安装所有依赖包")
+            print("  python Main.py -任务名                   # 只运行指定的任务（例如：-ASATempnetworkCheckTask）")
+            print("  python Main.py -任务名1 -任务名2 ...     # 运行多个指定的任务")
             sys.exit(1)
     else:
         # 默认模式：执行完整流程

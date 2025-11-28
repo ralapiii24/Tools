@@ -92,11 +92,6 @@ class ASATempnetworkCheckTask(BaseTask):
             # 读取配置文件
             with open(file_path, 'r', encoding='utf-8') as f:
                 content = f.read()
-            
-            # 检查配置采集是否失败
-            if self._check_collection_failure(content, device_name):
-                self.add_result(Level.ERROR, f"站点 {site} 设备 {device_name} 配置采集失败")
-                return
 
             # 提取object-group network ServTemp-To-Internet配置块
             temp_ips = self._extract_temp_network_objects(content)
@@ -110,56 +105,6 @@ class ASATempnetworkCheckTask(BaseTask):
 
         except Exception as e:
             self.add_result(Level.ERROR, f"站点 {site} 设备 {device_name} 处理失败: {e}")
-
-    # 检查配置采集是否失败：通过内容分析判断配置采集是否成功
-    @staticmethod
-    def _check_collection_failure(content: str, device_name: str) -> bool:
-        if not content or len(content.strip()) < 500:
-            return True
-
-        content_lower = content.lower()
-        
-        # 检查明确的采集失败标识
-        failure_indicators = [
-            'node not found',
-            'connection failed',
-            'unable to connect',
-            'authentication failed',
-            'access denied',
-            'no such file',
-            'device unreachable',
-            'oxidized error',
-            'collection failed',
-            'ssh connection failed',
-            'telnet connection failed',
-            'login failed',
-            'permission denied'
-        ]
-
-        for indicator in failure_indicators:
-            if indicator in content_lower:
-                return True
-
-        # 检查是否包含ASA配置的典型标识
-        asa_indicators = [
-            'hostname',
-            'interface',
-            'ip address',
-            'access-list',
-            'nat',
-            'route',
-            'crypto',
-            'object',
-            'object-group'
-        ]
-
-        has_asa_indicator = False
-        for indicator in asa_indicators:
-            if indicator in content_lower:
-                has_asa_indicator = True
-                break
-
-        return not has_asa_indicator
 
     # 提取临时出网地址：从配置中提取object-group network ServTemp-To-Internet的network-object host地址
     def _extract_temp_network_objects(self, content: str) -> list:

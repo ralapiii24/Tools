@@ -30,23 +30,23 @@ settings:
 # 设置为 false 可禁用对应任务，设置为 true 可启用对应任务
 
 task_switches:
-  FXOSWebTask: false                   # FXOS设备Web巡检
-  MirrorFortiGateTask: false           # FortiGate设备镜像巡检
-  OxidizedTask: false                 # Oxidized配置备份巡检
-  ESLogstashTask: false               # Logstash服务器巡检
-  ESBaseTask: false                   # Elasticsearch基础巡检
-  ESN9KLOGInspectTask: false          # ES N9K日志检查
-  ESFlowTask: false                   # Flow服务器巡检
-  DeviceBackupTask: false             # 设备备份任务
-  DeviceDIFFTask: false               # 设备差异检查
-  ASACompareTask: false               # ASA防火墙对比检查
-  ACLDupCheckTask: false              # ACL重复检查任务
-  ACLArpCheckTask: false              # ACL无ARP匹配检查任务
-  ACLCrossCheckTask: false            # N9K&LINKAS ACL交叉检查任务
-  ASADomainCheckTask: false           # ASA域名提取和检测任务
+  FXOSWebTask: true                   # FXOS设备Web巡检
+  MirrorFortiGateTask: true           # FortiGate设备镜像巡检
+  OxidizedTask: true                 # Oxidized配置备份巡检
+  ESLogstashTask: true               # Logstash服务器巡检
+  ESBaseTask: true                   # Elasticsearch基础巡检
+  ESN9KLOGInspectTask: true          # ES N9K日志检查
+  ESFlowTask: true                   # Flow服务器巡检
+  DeviceBackupTask: true             # 设备备份任务
+  DeviceDIFFTask: true               # 设备差异检查
+  ASACompareTask: true               # ASA防火墙对比检查
+  ACLDupCheckTask: true              # ACL重复检查任务
+  ACLArpCheckTask: true              # ACL无ARP匹配检查任务
+  ACLCrossCheckTask: true            # N9K&LINKAS ACL交叉检查任务
+  ASADomainCheckTask: true           # ASA域名提取和检测任务
   ASATempnetworkCheckTask: true       # ASA临时出网地址检查任务
-  ServiceCheckTask: false             # 服务检查任务(NTP TACACS+)
-  LogRecyclingTask: false             # 日志回收任务（月底最后一天执行）
+  ServiceCheckTask: true             # 服务检查任务(NTP TACACS+)
+  LogRecyclingTask: true             # 日志回收任务（月底最后一天执行）
 # 系统性能配置 - base.py调用
 timeouts:
   ssh: 12              # SSH连接超时(秒) - MirrorFortiGateTask, ESLogstashTask, ESBaseTask, ESFlowTask
