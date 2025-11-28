@@ -44,6 +44,24 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, Optional, Tuple
 
+# 设置标准输出编码为 UTF-8，解决 Linux 系统中文乱码问题
+# 在导入其他模块之前设置，确保所有输出都使用 UTF-8
+if sys.stdout.encoding != 'utf-8':
+    try:
+        import io
+        # 重新包装 stdout 和 stderr，强制使用 UTF-8 编码
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace', line_buffering=True)
+        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace', line_buffering=True)
+    except (AttributeError, io.UnsupportedOperation):
+        # 如果无法重新包装（例如在某些环境中），设置环境变量
+        os.environ['PYTHONIOENCODING'] = 'utf-8'
+        # 尝试设置 locale
+        try:
+            import locale
+            locale.setlocale(locale.LC_ALL, 'en_US.UTF-8')
+        except Exception:
+            pass
+
 # 导入第三方库
 import yaml
 from tqdm import tqdm
