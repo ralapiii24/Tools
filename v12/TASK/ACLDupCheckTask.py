@@ -190,6 +190,7 @@ def parse_acl(ACL_LINE: str) -> Tuple[Optional[ACLRule], Optional[str]]:
     if not CLEANED_LINE:
         return None, "empty"
     
+
     # 忽略带有any关键字的ACL规则
     if "any" in CLEANED_LINE.lower():
         return None, "contains_any"
@@ -200,7 +201,14 @@ def parse_acl(ACL_LINE: str) -> Tuple[Optional[ACLRule], Optional[str]]:
         SOURCE_NETWORK = cidr_to_network(MATCH_RESULT.group("SOURCE"))
         DESTINATION_NETWORK = cidr_to_network(MATCH_RESULT.group("DESTINATION"))
         if SOURCE_NETWORK and DESTINATION_NETWORK:
-            return ACLRule(CLEANED_LINE, MATCH_RESULT.group("ACTION").lower(), MATCH_RESULT.group("PROTOCOL").lower(), SOURCE_NETWORK, DESTINATION_NETWORK, PORT_NUMBER, None, PORT_NUMBER, "NXOS"), None
+            return (
+                ACLRule(
+                    CLEANED_LINE, MATCH_RESULT.group("ACTION").lower(),
+                    MATCH_RESULT.group("PROTOCOL").lower(), SOURCE_NETWORK,
+                    DESTINATION_NETWORK, PORT_NUMBER, None, PORT_NUMBER, "NXOS"
+                ),
+                None
+            )
         return None, "nxos_network_parse_fail"
 
     MATCH_RESULT = NXOS_SRC_PORT_RE.match(CLEANED_LINE)
@@ -209,16 +217,39 @@ def parse_acl(ACL_LINE: str) -> Tuple[Optional[ACLRule], Optional[str]]:
         SOURCE_NETWORK = cidr_to_network(MATCH_RESULT.group("SOURCE"))
         DESTINATION_NETWORK = cidr_to_network(MATCH_RESULT.group("DESTINATION"))
         if SOURCE_NETWORK and DESTINATION_NETWORK:
-            return ACLRule(CLEANED_LINE, MATCH_RESULT.group("ACTION").lower(), MATCH_RESULT.group("PROTOCOL").lower(), SOURCE_NETWORK, DESTINATION_NETWORK, PORT_NUMBER, PORT_NUMBER, None, "NXOS"), None
+            return (
+                ACLRule(
+                    CLEANED_LINE, MATCH_RESULT.group("ACTION").lower(),
+                    MATCH_RESULT.group("PROTOCOL").lower(), SOURCE_NETWORK,
+                    DESTINATION_NETWORK, PORT_NUMBER, PORT_NUMBER, None, "NXOS"
+                ),
+                None
+            )
         return None, "nxos_src_port_network_parse_fail"
 
     MATCH_RESULT = IOSXE_WC_RE.match(CLEANED_LINE)
     if MATCH_RESULT:
-        PORT_NUMBER = service_to_port(MATCH_RESULT.group("PORT_A")) or service_to_port(MATCH_RESULT.group("PORT_B"))
-        SOURCE_NETWORK = ip_and_wildcard_to_network(MATCH_RESULT.group("SOURCE_IP"), MATCH_RESULT.group("SOURCE_WILDCARD"))
-        DESTINATION_NETWORK = ip_and_wildcard_to_network(MATCH_RESULT.group("DESTINATION_IP"), MATCH_RESULT.group("DESTINATION_WILDCARD"))
+        PORT_NUMBER = (
+            service_to_port(MATCH_RESULT.group("PORT_A")) or
+            service_to_port(MATCH_RESULT.group("PORT_B"))
+        )
+        SOURCE_NETWORK = ip_and_wildcard_to_network(
+            MATCH_RESULT.group("SOURCE_IP"),
+            MATCH_RESULT.group("SOURCE_WILDCARD")
+        )
+        DESTINATION_NETWORK = ip_and_wildcard_to_network(
+            MATCH_RESULT.group("DESTINATION_IP"),
+            MATCH_RESULT.group("DESTINATION_WILDCARD")
+        )
         if SOURCE_NETWORK and DESTINATION_NETWORK:
-            return ACLRule(CLEANED_LINE, MATCH_RESULT.group("ACTION").lower(), MATCH_RESULT.group("PROTOCOL").lower(), SOURCE_NETWORK, DESTINATION_NETWORK, PORT_NUMBER, None, None, "IOS-XE"), None
+            return (
+                ACLRule(
+                    CLEANED_LINE, MATCH_RESULT.group("ACTION").lower(),
+                    MATCH_RESULT.group("PROTOCOL").lower(), SOURCE_NETWORK,
+                    DESTINATION_NETWORK, PORT_NUMBER, None, None, "IOS-XE"
+                ),
+                None
+            )
         return None, "iosxe_wc_network_parse_fail"
 
     MATCH_RESULT = IOSXE_HOST_RE.match(CLEANED_LINE)
@@ -227,7 +258,14 @@ def parse_acl(ACL_LINE: str) -> Tuple[Optional[ACLRule], Optional[str]]:
         SOURCE_NETWORK = host_to_network(MATCH_RESULT.group("SOURCE_IP"))
         DESTINATION_NETWORK = host_to_network(MATCH_RESULT.group("DESTINATION_IP"))
         if SOURCE_NETWORK and DESTINATION_NETWORK:
-            return ACLRule(CLEANED_LINE, MATCH_RESULT.group("ACTION").lower(), MATCH_RESULT.group("PROTOCOL").lower(), SOURCE_NETWORK, DESTINATION_NETWORK, PORT_NUMBER, None, None, "IOS-XE"), None
+            return (
+                ACLRule(
+                    CLEANED_LINE, MATCH_RESULT.group("ACTION").lower(),
+                    MATCH_RESULT.group("PROTOCOL").lower(), SOURCE_NETWORK,
+                    DESTINATION_NETWORK, PORT_NUMBER, None, None, "IOS-XE"
+                ),
+                None
+            )
         return None, "iosxe_host_network_parse_fail"
 
     MATCH_RESULT = IOSXE_MIX_RE.match(CLEANED_LINE)
@@ -240,10 +278,30 @@ def parse_acl(ACL_LINE: str) -> Tuple[Optional[ACLRule], Optional[str]]:
             return None, "conflicting_ports"
         # 使用目标端口作为主要端口（ACL通常关注目标端口）
         PORT_NUMBER = DESTINATION_PORT if DESTINATION_PORT is not None else SOURCE_PORT
-        SOURCE_NETWORK = host_to_network(MATCH_RESULT.group("SOURCE_IP_HOST")) if MATCH_RESULT.group("SOURCE_IP_HOST") else ip_and_wildcard_to_network(MATCH_RESULT.group("SOURCE_IP_WILDCARD"), MATCH_RESULT.group("SOURCE_WILDCARD_WILDCARD"))
-        DESTINATION_NETWORK = host_to_network(MATCH_RESULT.group("DESTINATION_IP_HOST")) if MATCH_RESULT.group("DESTINATION_IP_HOST") else ip_and_wildcard_to_network(MATCH_RESULT.group("DESTINATION_IP_WILDCARD"), MATCH_RESULT.group("DESTINATION_WILDCARD_WILDCARD"))
+        SOURCE_IP_HOST = MATCH_RESULT.group("SOURCE_IP_HOST")
+        SOURCE_IP_WC = MATCH_RESULT.group("SOURCE_IP_WILDCARD")
+        SOURCE_WC_WC = MATCH_RESULT.group("SOURCE_WILDCARD_WILDCARD")
+        SOURCE_NETWORK = (
+            host_to_network(SOURCE_IP_HOST) if SOURCE_IP_HOST
+            else ip_and_wildcard_to_network(SOURCE_IP_WC, SOURCE_WC_WC)
+        )
+        DEST_IP_HOST = MATCH_RESULT.group("DESTINATION_IP_HOST")
+        DEST_IP_WC = MATCH_RESULT.group("DESTINATION_IP_WILDCARD")
+        DEST_WC_WC = MATCH_RESULT.group("DESTINATION_WILDCARD_WILDCARD")
+        DESTINATION_NETWORK = (
+            host_to_network(DEST_IP_HOST) if DEST_IP_HOST
+            else ip_and_wildcard_to_network(DEST_IP_WC, DEST_WC_WC)
+        )
         if SOURCE_NETWORK and DESTINATION_NETWORK:
-            return ACLRule(CLEANED_LINE, MATCH_RESULT.group("ACTION").lower(), MATCH_RESULT.group("PROTOCOL").lower(), SOURCE_NETWORK, DESTINATION_NETWORK, PORT_NUMBER, SOURCE_PORT, DESTINATION_PORT, "IOS-XE"), None
+            return (
+                ACLRule(
+                    CLEANED_LINE, MATCH_RESULT.group("ACTION").lower(),
+                    MATCH_RESULT.group("PROTOCOL").lower(), SOURCE_NETWORK,
+                    DESTINATION_NETWORK, PORT_NUMBER, SOURCE_PORT,
+                    DESTINATION_PORT, "IOS-XE"
+                ),
+                None
+            )
         return None, "iosxe_mix_network_parse_fail"
 
     return None, "no_pattern_match"
@@ -285,6 +343,7 @@ def rule_covers(RULE_A: ACLRule, RULE_B: ACLRule) -> bool:
     if not proto_covers(RULE_A.proto, RULE_B.proto):
         return False
     
+
     # 对于NXOS格式，使用port字段；对于IOS-XE格式，使用src_port和dst_port字段
     if RULE_A.style == "NXOS" and RULE_B.style == "NXOS":
         # NXOS格式：检查源端口和目标端口
@@ -311,6 +370,7 @@ def rule_covers(RULE_A: ACLRule, RULE_B: ACLRule) -> bool:
                 if not port_covers(RULE_A.port, RULE_B.port):
                     return False
     
+
     if not RULE_B.src.subnet_of(RULE_A.src):
         return False
     if not RULE_B.dst.subnet_of(RULE_A.dst):
@@ -347,23 +407,28 @@ def _strict_connected_components(NODES: Iterable[int], UNDIRECTED_EDGES: List[Tu
     if not UNDIRECTED_EDGES:
         return []
     
+
     # 构建邻接表
     GRAPH: Dict[int, Set[int]] = {NODE: set() for NODE in NODES}
     for NODE_U, NODE_V in UNDIRECTED_EDGES:
         GRAPH.setdefault(NODE_U, set()).add(NODE_V)
         GRAPH.setdefault(NODE_V, set()).add(NODE_U)
     
+
     VISITED_NODES: Set[int] = set()
     COMPONENTS: List[Set[int]] = []
     
+
     for NODE in NODES:
         if NODE in VISITED_NODES:
             continue
         
+
         # 使用BFS找到所有直接连接的节点
         QUEUE = [NODE]
         COMPONENT = set()
         
+
         while QUEUE:
             CURRENT_NODE = QUEUE.pop(0)
             if CURRENT_NODE in VISITED_NODES:
@@ -371,34 +436,45 @@ def _strict_connected_components(NODES: Iterable[int], UNDIRECTED_EDGES: List[Tu
             VISITED_NODES.add(CURRENT_NODE)
             COMPONENT.add(CURRENT_NODE)
             
+
             # 只添加直接相邻的节点
             for NEIGHBOR in GRAPH.get(CURRENT_NODE, []):
                 if NEIGHBOR not in VISITED_NODES:
                     QUEUE.append(NEIGHBOR)
         
+
         if COMPONENT:
             COMPONENTS.append(COMPONENT)
     
+
     return COMPONENTS
 
 # 智能连通分量算法：避免通过被多个规则覆盖的中间节点创建不合理的间接连接
-# 智能连通分量算法：避免通过被多个规则覆盖的中间节点创建不合理的间接连接，如果某个节点被多个规则覆盖，则将其从连通图中移除，避免不合理的间接连接
-def _smart_connected_components(NODES: Iterable[int], UNDIRECTED_EDGES: List[Tuple[int, int]], DIRECTED_EDGES: List[Tuple[int, int]]) -> List[Set[int]]:
+# 智能连通分量算法：避免通过被多个规则覆盖的中间节点创建不合理的间接连接，
+# 如果某个节点被多个规则覆盖，则将其从连通图中移除，避免不合理的间接连接
+def _smart_connected_components(
+    NODES: Iterable[int], UNDIRECTED_EDGES: List[Tuple[int, int]],
+    DIRECTED_EDGES: List[Tuple[int, int]]
+) -> List[Set[int]]:
     if not UNDIRECTED_EDGES:
         return []
     
+
     # 统计每个节点的入度（被多少个规则覆盖）
     INDEGREE = {}
     for NODE in NODES:
         INDEGREE[NODE] = 0
     
+
     for FROM_NODE, TO_NODE in DIRECTED_EDGES:
         if TO_NODE in INDEGREE:
             INDEGREE[TO_NODE] += 1
     
+
     # 找出被多个规则覆盖的节点（入度 > 1）
     MULTI_COVERED_NODES = {NODE for NODE, DEGREE in INDEGREE.items() if DEGREE > 1}
     
+
     # 为被多个规则覆盖的节点找到最靠前的覆盖者
     NODE_TO_GROUP = {}
     for NODE in MULTI_COVERED_NODES:
@@ -411,6 +487,7 @@ def _smart_connected_components(NODES: Iterable[int], UNDIRECTED_EDGES: List[Tup
         if COVERERS:
             NODE_TO_GROUP[NODE] = min(COVERERS)
     
+
     # 构建邻接表，将被多个规则覆盖的节点连接到最靠前的覆盖者
     GRAPH: Dict[int, Set[int]] = {NODE: set() for NODE in NODES}
     for NODE_U, NODE_V in UNDIRECTED_EDGES:
@@ -431,17 +508,21 @@ def _smart_connected_components(NODES: Iterable[int], UNDIRECTED_EDGES: List[Tup
             GRAPH.setdefault(NODE_U, set()).add(NODE_V)
             GRAPH.setdefault(NODE_V, set()).add(NODE_U)
     
+
     VISITED_NODES: Set[int] = set()
     COMPONENTS: List[Set[int]] = []
     
+
     for NODE in NODES:
         if NODE in VISITED_NODES:
             continue
         
+
         # 使用BFS找到所有连接的节点
         QUEUE = [NODE]
         COMPONENT = set()
         
+
         while QUEUE:
             CURRENT_NODE = QUEUE.pop(0)
             if CURRENT_NODE in VISITED_NODES:
@@ -449,14 +530,17 @@ def _smart_connected_components(NODES: Iterable[int], UNDIRECTED_EDGES: List[Tup
             VISITED_NODES.add(CURRENT_NODE)
             COMPONENT.add(CURRENT_NODE)
             
+
             # 添加相邻的节点
             for NEIGHBOR in GRAPH.get(CURRENT_NODE, []):
                 if NEIGHBOR not in VISITED_NODES:
                     QUEUE.append(NEIGHBOR)
         
+
         if COMPONENT:
             COMPONENTS.append(COMPONENT)
     
+
     return COMPONENTS
 
 
@@ -464,6 +548,7 @@ def _smart_connected_components(NODES: Iterable[int], UNDIRECTED_EDGES: List[Tup
 FILL_COLORS = [
     "FFFDE68A",  # amber-300
     "FFA7F3D0",  # teal-200  
+
     "FFFCA5A5",  # red-300
     "FF93C5FD",  # blue-300
     "FFA5B4FC",  # violet-300
@@ -503,6 +588,7 @@ def _is_acl_rule(text: str) -> bool:
     ]):
         return False
     
+
     # 只处理包含permit/deny的规则
     return 'permit' in text or 'deny' in text
 
@@ -516,10 +602,15 @@ def _get_device_classification_rules():
             "patterns": [
                 # CS + N9K + (01|02|03|04)，兼容连写
                 lambda filenameLower: (("cs" in filenameLower) or re.search(r"\bcs\b", filenameLower)) and 
+
                          (("n9k" in filenameLower) or re.search(r"\bn9k\b", filenameLower)) and 
+
                          re.search(r"(?:^|[^0-9])0?[1-4](?:[^0-9]|$)", filenameLower),
                 # CS连写模式
-                lambda filenameLower: re.search(r"cs0?[1-4]", filenameLower) and (("n9k" in filenameLower) or re.search(r"\bn9k\b", filenameLower))
+                lambda filenameLower: (
+                    re.search(r"cs0?[1-4]", filenameLower) and
+                    (("n9k" in filenameLower) or re.search(r"\bn9k\b", filenameLower))
+                )
             ]
         },
         "cat2": {
@@ -527,12 +618,17 @@ def _get_device_classification_rules():
             "patterns": [
                 # LINK + AS + (01|02)，兼容连写
                 lambda filenameLower: (("link" in filenameLower) or re.search(r"\blink\b", filenameLower)) and 
+
                          (("as" in filenameLower) or re.search(r"\bas\b", filenameLower)) and 
+
                          re.search(r"(?:^|[^0-9])0?[12](?:[^0-9]|$)", filenameLower),
                 # LINKAS连写模式
                 lambda filenameLower: re.search(r"link[-_]*as0?[12]", filenameLower),
                 # AS连写模式
-                lambda filenameLower: (("link" in filenameLower) or re.search(r"\blink\b", filenameLower)) and re.search(r"as0?[12]", filenameLower)
+                lambda filenameLower: (
+                    (("link" in filenameLower) or re.search(r"\blink\b", filenameLower)) and
+                    re.search(r"as0?[12]", filenameLower)
+                )
             ]
         }
     }
@@ -560,6 +656,7 @@ def analyze_first_row_for_cat1_cat2(worksheet):
     cat1_cols = []
     cat2_cols = []
     
+
     for COLUMN in range(1, worksheet.max_column + 1):
         first_cell = worksheet.cell(row=1, column=COLUMN).value
         if first_cell and isinstance(first_cell, str):
@@ -568,6 +665,7 @@ def analyze_first_row_for_cat1_cat2(worksheet):
             elif _is_cat2_device(first_cell):
                 cat2_cols.append(COLUMN)
     
+
     return cat1_cols, cat2_cols
 
 # 在指定列中找到ACL块，以ip access-list开始，以包含vty和ip的ip access-list行结束
@@ -576,12 +674,14 @@ def find_acl_blocks_in_column(worksheet, col):
     current_start = None
     found_vty = False  # 标记是否遇到登录ACL结束标记
     
+
     for ROW in range(1, worksheet.max_row + 1):
         cell_value = worksheet.cell(row=ROW, column=col).value
         if cell_value and isinstance(cell_value, str):
             text = str(cell_value).strip()
             text_lower = text.lower()
             
+
             # 业务ACL开始（排除登录ACL）
             if text.startswith('ip access-list '):
                 # 检查是否是登录ACL结束标记（包含vty和ip，忽略大小写）
@@ -599,10 +699,12 @@ def find_acl_blocks_in_column(worksheet, col):
                         acl_blocks.append((current_start, ROW - 1))
                     current_start = ROW
     
+
     # 处理最后一个ACL块（只有在没有遇到登录ACL结束标记时才处理）
     if not found_vty and current_start is not None:
         acl_blocks.append((current_start, worksheet.max_row))
     
+
     return acl_blocks
 
 # 处理单个ACL块内的覆盖关系
@@ -617,10 +719,12 @@ def process_acl_block(worksheet, col, start_row, end_row):
         if not cleaned_text:
             continue
         
+
         # 只处理真正的ACL规则，忽略证书等数据
         if not _is_acl_rule(cleaned_text):
             continue
         
+
         # 解析ACL规则
         parsed_rule, parse_error = parse_acl(cleaned_text)
         if parsed_rule:
@@ -635,6 +739,7 @@ def process_acl_block(worksheet, col, start_row, end_row):
     undirected_edges: List[Tuple[int, int]] = []  # 分组用
     rows = sorted(col_rules.keys())
     
+
     for rule_i in range(len(rows)):
         for rule_j in range(rule_i + 1, len(rows)):
             row_i, row_j = rows[rule_i], rows[rule_j]
@@ -707,10 +812,14 @@ def process_acl_block(worksheet, col, start_row, end_row):
             cell.font = Font(
                 name="宋体",
                 sz=current_font.sz, 
+
                 b=current_font.b, 
+
                 i=current_font.i,
                 underline=current_font.u, 
+
                 strike=current_font.strike, 
+
                 color="FFFF0000"
             )
 
@@ -734,13 +843,17 @@ def process_file(input_path: str, output_path: str) -> Dict[str, Dict[str, int]]
         cat1_cols, cat2_cols = analyze_first_row_for_cat1_cat2(worksheet)
         target_cols = cat1_cols + cat2_cols
         
+
         # 2. 对每个目标列处理ACL块
         for COLUMN in target_cols:
             acl_blocks = find_acl_blocks_in_column(worksheet, COLUMN)
             
+
             for start_row, end_row in acl_blocks:
                 # 3. 处理ACL块内的覆盖关系
-                block_groups, block_keep, block_recycle, block_total = process_acl_block(worksheet, COLUMN, start_row, end_row)
+                block_groups, block_keep, block_recycle, block_total = (
+                    process_acl_block(worksheet, COLUMN, start_row, end_row)
+                )
                 groups_count += block_groups
                 keep_count += block_keep
                 recycle_count += block_recycle
@@ -823,6 +936,7 @@ class ACLDupCheckTask(BaseTask):
 
         # 使用父类的进度条处理
         from tqdm import tqdm
+
         from .TaskBase import BAR_FORMAT, SHOW_PROGRESS
 
         progress = tqdm(
@@ -890,6 +1004,7 @@ class ACLDupCheckTask(BaseTask):
             except Exception:
                 enable_summary = False
             
+
             if enable_summary:
                 total_groups = sum(stats.get("groups", 0) for stats in all_sheet_stats.values())
                 total_keep = sum(stats.get("keep", 0) for stats in all_sheet_stats.values())

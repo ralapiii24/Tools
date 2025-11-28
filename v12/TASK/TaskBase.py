@@ -71,6 +71,7 @@ def _sync_encrypt_key_to_config():
         OLD_CONFIG_KEY = SETTINGS.get("config_version")
         NEW_CONFIG_KEY = _DEFAULT_SYNC_TOKEN
         
+
         if OLD_CONFIG_KEY and OLD_CONFIG_KEY != NEW_CONFIG_KEY:
             NEED_RE_ENCRYPT = _re_encrypt_all_passwords(OLD_CONFIG_KEY, NEW_CONFIG_KEY, CONFIG)
             if NEED_RE_ENCRYPT:
@@ -93,6 +94,16 @@ _ENCRYPT_KEY = os.environ.get("ENCRYPT_KEY", _DEFAULT_SYNC_TOKEN).encode()
 
 # 加密密码：使用默认密钥加密明文密码，返回enc:前缀的加密字符串
 def encrypt_password(plain_password: str) -> str:
+    """加密密码
+    
+
+    Args:
+        plain_password: 明文密码
+        
+
+    Returns:
+        str: 加密后的密码（带enc:前缀）
+    """
     PLAIN_BYTES = plain_password.encode('utf-8')
     KEY_BYTES = _ENCRYPT_KEY
     ENCRYPTED_BYTES = bytearray()
@@ -103,6 +114,20 @@ def encrypt_password(plain_password: str) -> str:
 
 # 解密密码：使用默认密钥解密enc:前缀的加密密码，返回明文密码
 def decrypt_password(encrypted_password: str) -> str:
+    """解密密码
+    
+
+    Args:
+        encrypted_password: 加密的密码（带enc:前缀）
+        
+
+    Returns:
+        str: 明文密码
+        
+
+    Raises:
+        ValueError: 如果解密失败
+    """
     if not encrypted_password.startswith("enc:"):
         return encrypted_password
     try:
@@ -187,6 +212,11 @@ SHOW_PROGRESS = bool(CONFIG["settings"]["show_progress"])
 # 分级结果模型
 # 告警级别枚举：定义巡检结果的严重程度等级
 class Level(Enum):
+    """告警级别枚举
+    
+
+    定义巡检结果的严重程度等级
+    """
     OK = "OK"
     WARN = "WARN"
     CRIT = "CRIT"
@@ -195,6 +225,11 @@ class Level(Enum):
 # 巡检结果数据类：存储单个巡检任务的结果信息
 @dataclass
 class Result:
+    """巡检结果数据类
+    
+
+    存储单个巡检任务的结果信息
+    """
     level: str
     message: str
     meta: Optional[dict] = None
@@ -202,6 +237,21 @@ class Result:
 # 通用工具
 # 百分比分级函数：根据阈值将数值映射到告警级别
 def grade_percent(value: Optional[float], warn: int, crit: int) -> Level:
+    """百分比分级函数
+    
+
+    根据阈值将数值映射到告警级别
+    
+
+    Args:
+        value: 要分级的数值
+        warn: 警告阈值
+        crit: 严重阈值
+        
+
+    Returns:
+        Level: 告警级别
+    """
     if value is None:
         return Level.ERROR
     if value >= crit:
@@ -212,6 +262,17 @@ def grade_percent(value: Optional[float], warn: int, crit: int) -> Level:
 
 # 从文件名提取站点名：使用正则表达式从文件名中提取站点标识
 def extract_site_from_filename(filename: str, pattern: str = r"^\d{8}-([^-]+)-") -> str:
+    """从文件名提取站点名
+    
+
+    Args:
+        filename: 文件名
+        pattern: 正则表达式模式
+        
+
+    Returns:
+        str: 站点名
+    """
     import re
     BASE = os.path.basename(filename)
     MATCH = re.match(pattern, BASE)
@@ -219,13 +280,40 @@ def extract_site_from_filename(filename: str, pattern: str = r"^\d{8}-([^-]+)-")
 
 # 从设备名提取站点名：从设备名称中提取站点标识
 def extract_site_from_device(device_name: str) -> str:
+    """从设备名提取站点名
+    
+
+    Args:
+        device_name: 设备名称
+        
+
+    Returns:
+        str: 站点名，如果无法提取则返回None
+    """
     import re
     # 支持 HX 和 P 开头的站点
     MATCH = re.match(r'^(HX\d+|P\d+)', device_name)
     return MATCH.group(1) if MATCH else None
 
 # 创建SSH连接：建立到远程主机的SSH连接
-def create_ssh_connection(host: str, port: int, username: str, password: str, timeout: int = DEFAULT_SSH_TIMEOUT) -> paramiko.SSHClient:
+def create_ssh_connection(
+    host: str, port: int, username: str, password: str,
+    timeout: int = DEFAULT_SSH_TIMEOUT
+) -> paramiko.SSHClient:
+    """创建SSH连接
+    
+
+    Args:
+        host: 主机地址
+        port: 端口号
+        username: 用户名
+        password: 密码
+        timeout: 超时时间（秒）
+        
+
+    Returns:
+        paramiko.SSHClient: SSH客户端对象
+    """
     ssh = paramiko.SSHClient()
     ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
     ssh.connect(host, port=port, username=username, password=password, timeout=timeout)
@@ -233,13 +321,42 @@ def create_ssh_connection(host: str, port: int, username: str, password: str, ti
 
 # 生成安全的Excel工作表名称：确保工作表名称符合Excel规范
 def safe_sheet_name(name: str) -> str:
+    """生成安全的Excel工作表名称
+    
+
+    Args:
+        name: 原始名称
+        
+
+    Returns:
+        str: 安全的Excel工作表名称（最多31个字符）
+    """
     import re
     safe_name = re.sub(r'[:\\/*?\[\]]', "_", name)[:31]
     return safe_name or "Sheet1"
 
 # 执行SSH命令：通过SSH连接执行远程命令并返回结果
-def ssh_exec(ssh: paramiko.SSHClient, cmd: str, timeout: int = DEFAULT_SSH_TIMEOUT, label: str = "") -> Tuple[
-    int, str, str]:
+def ssh_exec(
+    ssh: paramiko.SSHClient, cmd: str,
+    timeout: int = DEFAULT_SSH_TIMEOUT, label: str = ""
+) -> Tuple[int, str, str]:
+    """执行SSH命令
+    
+
+    Args:
+        ssh: SSH客户端对象
+        cmd: 要执行的命令
+        timeout: 超时时间（秒）
+        label: 命令标签（用于错误信息）
+        
+
+    Returns:
+        Tuple[int, str, str]: (退出码, 标准输出, 标准错误)
+        
+
+    Raises:
+        RuntimeError: 如果命令执行失败
+    """
     try:
         stdin, stdout, stderr = ssh.exec_command(cmd, timeout=timeout)
         stdout_text = stdout.read().decode("utf-8", "ignore")
@@ -252,6 +369,11 @@ def ssh_exec(ssh: paramiko.SSHClient, cmd: str, timeout: int = DEFAULT_SSH_TIMEO
 # 任务框架
 # 基础任务类：所有巡检任务的基类，提供通用的任务执行框架
 class BaseTask:
+    """基础任务类
+    
+
+    所有巡检任务的基类，提供通用的任务执行框架
+    """
     # 初始化基础任务：设置任务名称和结果列表
     def __init__(self, name: str):
         self.NAME = name
@@ -264,14 +386,40 @@ class BaseTask:
 
     # 获取任务项目列表：子类必须实现，返回要处理的项目列表
     def items(self):
+        """获取任务项目列表
+        
+
+        子类必须实现，返回要处理的项目列表
+        
+
+        Returns:
+            list: 要处理的项目列表
+        """
         raise NotImplementedError
 
     # 处理单个项目：子类必须实现，处理单个任务项目
     def run_single(self, item):
+        """处理单个项目
+        
+
+        子类必须实现，处理单个任务项目
+        
+
+        Args:
+            item: 要处理的项目
+        """
         raise NotImplementedError
 
     # 添加结果记录：将巡检结果添加到结果列表
     def add_result(self, level: Level, message: str, meta: Optional[dict] = None) -> None:
+        """添加结果记录
+        
+
+        Args:
+            level: 告警级别
+            message: 结果消息
+            meta: 附加元数据
+        """
         # 可选抑制OK级别的非关键日志
         if level == Level.OK and getattr(self, "SUPPRESS_OK_LOGS", False):
             return
@@ -280,6 +428,11 @@ class BaseTask:
 
     # 执行任务：遍历所有项目并执行巡检，显示进度条
     def run(self) -> None:
+        """执行任务
+        
+
+        遍历所有项目并执行巡检，显示进度条
+        """
         task_items = list(self.items())
         progress = tqdm(
             total=len(task_items),
@@ -301,5 +454,3 @@ class BaseTask:
         finally:
             if progress:
                 progress.close()
-
-

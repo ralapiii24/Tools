@@ -93,14 +93,17 @@ def _extract_all_ports(port_str: str) -> Set[int]:
     if not port_str:
         return set()
     
+
     PORTS = set()
     PORT_ITEMS = port_str.strip().split()
     
+
     for ITEM in PORT_ITEMS:
         ITEM = ITEM.strip()
         if not ITEM:
             continue
         
+
         # 尝试转换为端口号
         if ITEM.isdigit():
             PORTS.add(int(ITEM))
@@ -113,6 +116,7 @@ def _extract_all_ports(port_str: str) -> Set[int]:
             except (ValueError, TypeError, OSError):
                 pass
     
+
     return PORTS
 
 # ============================================================================
@@ -415,6 +419,7 @@ def parse_acl_full(ACL_LINE: str) -> Tuple[Optional[ACLRule], Optional[str]]:
     if not CLEANED_LINE:
         return None, "empty"
     
+
     # 去除行号前缀（如果存在）
     line_number_pattern = re.compile(r'^\s*\d+\s+(permit|deny)', re.IGNORECASE)
     if line_number_pattern.match(CLEANED_LINE):
@@ -422,8 +427,10 @@ def parse_acl_full(ACL_LINE: str) -> Tuple[Optional[ACLRule], Optional[str]]:
         if match:
             CLEANED_LINE = CLEANED_LINE[match.start():]
     
+
     # 按优先级尝试匹配各种格式（从最具体到最通用）
     
+
     # 1. NXOS源端口格式（优先，因为更具体）
     MATCH_RESULT = NXOS_SRC_PORT_RE.match(CLEANED_LINE)
     if MATCH_RESULT:
@@ -445,6 +452,7 @@ def parse_acl_full(ACL_LINE: str) -> Tuple[Optional[ACLRule], Optional[str]]:
             ), None
         return None, "nxos_src_port_network_parse_fail"
     
+
     # 2. NXOS端口范围格式
     MATCH_RESULT = NXOS_RANGE_RE.match(CLEANED_LINE)
     if MATCH_RESULT:
@@ -469,6 +477,7 @@ def parse_acl_full(ACL_LINE: str) -> Tuple[Optional[ACLRule], Optional[str]]:
             ), None
         return None, "nxos_range_network_parse_fail"
     
+
     # 3. NXOS标准格式
     MATCH_RESULT = NXOS_RE.match(CLEANED_LINE)
     if MATCH_RESULT:
@@ -489,6 +498,7 @@ def parse_acl_full(ACL_LINE: str) -> Tuple[Optional[ACLRule], Optional[str]]:
             ), None
         return None, "nxos_network_parse_fail"
     
+
     # 4. IOS-XE多端口格式（源IP+通配符，目的IP+通配符）
     MATCH_RESULT = IOSXE_MULTI_EQ_WILDCARD_RE.match(CLEANED_LINE)
     if MATCH_RESULT:
@@ -518,6 +528,7 @@ def parse_acl_full(ACL_LINE: str) -> Tuple[Optional[ACLRule], Optional[str]]:
             ), None
         return None, "iosxe_multi_eq_wildcard_network_parse_fail"
     
+
     # 5. IOS-XE端口范围格式（源IP+通配符，目的IP+通配符）
     MATCH_RESULT = IOSXE_RANGE_WILDCARD_RE.match(CLEANED_LINE)
     if MATCH_RESULT:
@@ -543,6 +554,7 @@ def parse_acl_full(ACL_LINE: str) -> Tuple[Optional[ACLRule], Optional[str]]:
             ), None
         return None, "iosxe_range_wildcard_network_parse_fail"
     
+
     # 6. IOS-XE host + 多端口 + wildcard格式
     MATCH_RESULT = IOSXE_HOST_MULTI_EQ_WILDCARD_RE.match(CLEANED_LINE)
     if MATCH_RESULT:
@@ -569,6 +581,7 @@ def parse_acl_full(ACL_LINE: str) -> Tuple[Optional[ACLRule], Optional[str]]:
             ), None
         return None, "iosxe_host_multi_eq_wildcard_network_parse_fail"
     
+
     # 7. IOS-XE range + multi eq格式（源IP+通配符，目的host）
     MATCH_RESULT = IOSXE_RANGE_MULTI_EQ_RE.match(CLEANED_LINE)
     if MATCH_RESULT:
@@ -591,6 +604,7 @@ def parse_acl_full(ACL_LINE: str) -> Tuple[Optional[ACLRule], Optional[str]]:
             ), None
         return None, "iosxe_range_multi_eq_network_parse_fail"
     
+
     # 8. IOS-XE range格式（源host，目的IP+通配符）
     MATCH_RESULT = IOSXE_RANGE_HOST_SRC_RE.match(CLEANED_LINE)
     if MATCH_RESULT:
@@ -613,12 +627,14 @@ def parse_acl_full(ACL_LINE: str) -> Tuple[Optional[ACLRule], Optional[str]]:
             ), None
         return None, "iosxe_range_host_src_network_parse_fail"
     
+
     # 9. IOS-XE混合格式（host和wildcard混合）
     MATCH_RESULT = IOSXE_MIX_RE.match(CLEANED_LINE)
     if MATCH_RESULT:
         PORT_A_STR = MATCH_RESULT.group("PORT_A")
         PORT_B_STR = MATCH_RESULT.group("PORT_B")
         
+
         # 判断端口位置
         port_a_before_dst = False
         if PORT_A_STR and not PORT_B_STR:
@@ -632,10 +648,12 @@ def parse_acl_full(ACL_LINE: str) -> Tuple[Optional[ACLRule], Optional[str]]:
                 if dst_host_pos > eq_pos or (dst_wildcard_pos > eq_pos and dst_wildcard_pos > 0):
                     port_a_before_dst = True
         
+
         ALL_PORTS = set()
         SOURCE_PORT = None
         DESTINATION_PORT = None
         
+
         if port_a_before_dst:
             if PORT_A_STR:
                 ALL_PORTS.update(_extract_all_ports(PORT_A_STR))
@@ -659,12 +677,26 @@ def parse_acl_full(ACL_LINE: str) -> Tuple[Optional[ACLRule], Optional[str]]:
                 if PORT_B_LIST:
                     DESTINATION_PORT = service_to_port(PORT_B_LIST[0])
         
+
         if SOURCE_PORT is not None and DESTINATION_PORT is not None and SOURCE_PORT != DESTINATION_PORT:
             return None, "conflicting_ports"
         
+
         PORT_NUMBER = DESTINATION_PORT if DESTINATION_PORT is not None else SOURCE_PORT
-        SOURCE_NETWORK = host_to_network(MATCH_RESULT.group("SOURCE_IP_HOST")) if MATCH_RESULT.group("SOURCE_IP_HOST") else ip_and_wildcard_to_network(MATCH_RESULT.group("SOURCE_IP_WILDCARD"), MATCH_RESULT.group("SOURCE_WILDCARD_WILDCARD"))
-        DESTINATION_NETWORK = host_to_network(MATCH_RESULT.group("DESTINATION_IP_HOST")) if MATCH_RESULT.group("DESTINATION_IP_HOST") else ip_and_wildcard_to_network(MATCH_RESULT.group("DESTINATION_IP_WILDCARD"), MATCH_RESULT.group("DESTINATION_WILDCARD_WILDCARD"))
+        SOURCE_IP_HOST = MATCH_RESULT.group("SOURCE_IP_HOST")
+        SOURCE_IP_WC = MATCH_RESULT.group("SOURCE_IP_WILDCARD")
+        SOURCE_WC_WC = MATCH_RESULT.group("SOURCE_WILDCARD_WILDCARD")
+        SOURCE_NETWORK = (
+            host_to_network(SOURCE_IP_HOST) if SOURCE_IP_HOST
+            else ip_and_wildcard_to_network(SOURCE_IP_WC, SOURCE_WC_WC)
+        )
+        DEST_IP_HOST = MATCH_RESULT.group("DESTINATION_IP_HOST")
+        DEST_IP_WC = MATCH_RESULT.group("DESTINATION_IP_WILDCARD")
+        DEST_WC_WC = MATCH_RESULT.group("DESTINATION_WILDCARD_WILDCARD")
+        DESTINATION_NETWORK = (
+            host_to_network(DEST_IP_HOST) if DEST_IP_HOST
+            else ip_and_wildcard_to_network(DEST_IP_WC, DEST_WC_WC)
+        )
         if SOURCE_NETWORK and DESTINATION_NETWORK:
             PORTS_SET = ALL_PORTS if len(ALL_PORTS) > 1 else (ALL_PORTS if ALL_PORTS else None)
             return ACLRule(
@@ -681,6 +713,7 @@ def parse_acl_full(ACL_LINE: str) -> Tuple[Optional[ACLRule], Optional[str]]:
             ), None
         return None, "iosxe_mix_network_parse_fail"
     
+
     # 10. IOS-XE Wildcard格式（标准）
     MATCH_RESULT = IOSXE_WC_RE.match(CLEANED_LINE)
     if MATCH_RESULT:
@@ -707,6 +740,7 @@ def parse_acl_full(ACL_LINE: str) -> Tuple[Optional[ACLRule], Optional[str]]:
             ), None
         return None, "iosxe_wc_network_parse_fail"
     
+
     # 11. IOS-XE Host格式
     MATCH_RESULT = IOSXE_HOST_RE.match(CLEANED_LINE)
     if MATCH_RESULT:
@@ -727,6 +761,7 @@ def parse_acl_full(ACL_LINE: str) -> Tuple[Optional[ACLRule], Optional[str]]:
             ), None
         return None, "iosxe_host_network_parse_fail"
     
+
     # 12. 混合格式 - 源地址wildcard + 目的地址CIDR
     MATCH_RESULT = IOSXE_WC_SRC_CIDR_DST_RE.match(CLEANED_LINE)
     if MATCH_RESULT:
@@ -749,6 +784,7 @@ def parse_acl_full(ACL_LINE: str) -> Tuple[Optional[ACLRule], Optional[str]]:
             ), None
         return None, "iosxe_wc_src_cidr_dst_network_parse_fail"
     
+
     # 13. 混合格式 - 源地址CIDR + 目的地址wildcard
     MATCH_RESULT = IOSXE_CIDR_SRC_WC_DST_RE.match(CLEANED_LINE)
     if MATCH_RESULT:
@@ -772,6 +808,7 @@ def parse_acl_full(ACL_LINE: str) -> Tuple[Optional[ACLRule], Optional[str]]:
             ), None
         return None, "iosxe_cidr_src_wc_dst_network_parse_fail"
     
+
     # 14. IOS-XE Any关键字格式（host + any）
     # 示例: 10 permit tcp host 10.10.80.1 any eq 22 log
     IOSXE_HOST_ANY_RE = re.compile(
@@ -805,6 +842,7 @@ def parse_acl_full(ACL_LINE: str) -> Tuple[Optional[ACLRule], Optional[str]]:
             ), None
         return None, "iosxe_host_any_network_parse_fail"
     
+
     # 15. IOS-XE Any关键字格式（any + host）
     # 示例: 10 permit tcp any host 10.10.80.1 eq 22 log
     IOSXE_ANY_HOST_RE = re.compile(
@@ -838,6 +876,7 @@ def parse_acl_full(ACL_LINE: str) -> Tuple[Optional[ACLRule], Optional[str]]:
             ), None
         return None, "iosxe_any_host_network_parse_fail"
     
+
     # 16. IOS-XE Any关键字格式（wildcard + any 或 any + wildcard）
     MATCH_RESULT = IOSXE_ANY_RE.match(CLEANED_LINE)
     if MATCH_RESULT:
@@ -849,6 +888,7 @@ def parse_acl_full(ACL_LINE: str) -> Tuple[Optional[ACLRule], Optional[str]]:
         else:
             SOURCE_NETWORK = any_to_network()
         
+
         if MATCH_RESULT.group("DST_IP") and MATCH_RESULT.group("DST_WC"):
             DESTINATION_NETWORK = ip_and_wildcard_to_network(
                 MATCH_RESULT.group("DST_IP"),
@@ -857,6 +897,7 @@ def parse_acl_full(ACL_LINE: str) -> Tuple[Optional[ACLRule], Optional[str]]:
         else:
             DESTINATION_NETWORK = any_to_network()
         
+
         if SOURCE_NETWORK and DESTINATION_NETWORK:
             return ACLRule(
                 CLEANED_LINE,
@@ -871,12 +912,14 @@ def parse_acl_full(ACL_LINE: str) -> Tuple[Optional[ACLRule], Optional[str]]:
             ), None
         return None, "iosxe_any_network_parse_fail"
     
+
     # 17. ASA格式
     MATCH_RESULT = ASA_RE.match(CLEANED_LINE)
     if MATCH_RESULT:
         src_str = MATCH_RESULT.group("SRC")
         dst_str = MATCH_RESULT.group("DST")
         
+
         if src_str.lower() == "any":
             SOURCE_NETWORK = any_to_network()
         elif "/" in src_str:
@@ -884,6 +927,7 @@ def parse_acl_full(ACL_LINE: str) -> Tuple[Optional[ACLRule], Optional[str]]:
         else:
             SOURCE_NETWORK = host_to_network(src_str)
         
+
         if dst_str.lower() == "any":
             DESTINATION_NETWORK = any_to_network()
         elif "/" in dst_str:
@@ -891,8 +935,10 @@ def parse_acl_full(ACL_LINE: str) -> Tuple[Optional[ACLRule], Optional[str]]:
         else:
             DESTINATION_NETWORK = host_to_network(dst_str)
         
+
         PORT_NUMBER = service_to_port(MATCH_RESULT.group("PORT_A")) or service_to_port(MATCH_RESULT.group("PORT_B"))
         
+
         if SOURCE_NETWORK and DESTINATION_NETWORK:
             return ACLRule(
                 CLEANED_LINE,
@@ -907,6 +953,7 @@ def parse_acl_full(ACL_LINE: str) -> Tuple[Optional[ACLRule], Optional[str]]:
             ), None
         return None, "asa_network_parse_fail"
     
+
     return None, "no_pattern_match"
 
 # ============================================================================
@@ -919,10 +966,12 @@ def parse_acl_full(ACL_LINE: str) -> Tuple[Optional[ACLRule], Optional[str]]:
 def is_acl_rule(text: str) -> bool:
     text = text.strip().lower()
     
+
     # 必须包含permit或deny
     if 'permit' not in text and 'deny' not in text:
         return False
     
+
     # 排除配置命令（以这些关键字开头的行，但不是ACL规则）
     exclude_patterns = [
         r'^ip\s+access-list\s+',  # ACL定义行
@@ -950,15 +999,19 @@ def is_acl_rule(text: str) -> bool:
         r'^no\s+arp',  # no arp命令
     ]
     
+
     for pattern in exclude_patterns:
         if re.match(pattern, text, re.IGNORECASE):
             return False
     
+
     # 必须包含协议或IP地址
     if not (re.search(r'\b(tcp|udp|ip|icmp|ospf|eigrp|gre|esp|ah)\b', text) or 
+
             re.search(r'\d+\.\d+\.\d+\.\d+', text)):
         return False
     
+
     return True
 
 # ============================================================================
@@ -975,6 +1028,7 @@ def parse_acl(ACL_LINE: str) -> Tuple[Optional[ACLRule], Optional[str]]:
     if not CLEANED_LINE:
         return None, "empty"
     
+
     # 去除行号前缀（如果存在）：行号通常是开头的数字，后跟空格
     # 例如："464 permit ip ..." -> "permit ip ..."
     # 匹配开头的数字（可能有多位）后跟空格，然后才是permit/deny
@@ -985,10 +1039,12 @@ def parse_acl(ACL_LINE: str) -> Tuple[Optional[ACLRule], Optional[str]]:
         if match:
             CLEANED_LINE = CLEANED_LINE[match.start():]
     
+
     # 忽略any规则
     if "any" in CLEANED_LINE.lower():
         return None, "contains_any"
     
+
     # 调用parse_acl_full进行完整解析
     # 注意：由于NXOS_RE已统一为宽松匹配，log-input/time-range等关键字会自动被忽略
     result, error = parse_acl_full(ACL_LINE)
@@ -1022,12 +1078,14 @@ def find_acl_blocks_in_column(worksheet, col: int) -> List[Tuple[int, int]]:
     CURRENT_START = None
     FOUND_VTY = False  # 标记是否遇到登录ACL结束标记
     
+
     for ROW in range(1, worksheet.max_row + 1):
         CELL_VALUE = worksheet.cell(row=ROW, column=col).value
         if CELL_VALUE and isinstance(CELL_VALUE, str):
             TEXT = str(CELL_VALUE).strip()
             TEXT_LOWER = TEXT.lower()
             
+
             # 业务ACL开始（排除登录ACL）
             if TEXT.startswith('ip access-list '):
                 # 检查是否是登录ACL结束标记（包含vty和ip，忽略大小写）
@@ -1045,10 +1103,12 @@ def find_acl_blocks_in_column(worksheet, col: int) -> List[Tuple[int, int]]:
                         ACL_BLOCKS.append((CURRENT_START, ROW - 1))
                     CURRENT_START = ROW
     
+
     # 处理最后一个ACL块（只有在没有遇到登录ACL结束标记时才处理）
     if not FOUND_VTY and CURRENT_START is not None:
         ACL_BLOCKS.append((CURRENT_START, worksheet.max_row))
     
+
     return ACL_BLOCKS
 
 # 从指定列的ACL块中提取ACL规则：忽略any规则，只提取有效的ACL规则
@@ -1064,14 +1124,17 @@ def extract_acl_rules_from_column(worksheet, col: int, start_row: int, end_row: 
         if not CLEANED_TEXT:
             continue
         
+
         # 只处理真正的ACL规则，忽略证书等数据
         if not is_acl_rule(CLEANED_TEXT):
             continue
         
+
         # 解析ACL规则（会自动忽略any规则）
         PARSED_RULE, PARSE_ERROR = parse_acl(CLEANED_TEXT)
         if PARSED_RULE:
             ACL_RULES.append(PARSED_RULE)
     
+
     return ACL_RULES
 

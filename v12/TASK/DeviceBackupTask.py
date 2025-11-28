@@ -37,11 +37,20 @@ from typing import Optional
 # (无第三方库依赖)
 
 # 导入本地应用
-from .TaskBase import BaseTask, Level, CONFIG, extract_site_from_filename, safe_sheet_name, require_keys
+from .TaskBase import (
+    BaseTask, Level, CONFIG, extract_site_from_filename,
+    safe_sheet_name, require_keys
+)
 
 # 关键设备配置备份任务类：将设备配置备份并输出为Excel格式
 class DeviceBackupTask(BaseTask):
+    """关键设备配置备份任务
     
+
+    将N9K ASA设备配置备份并输出为Excel格式，为后续ACL分析提供基础数据
+    """
+    
+
     # 初始化关键设备配置备份任务：设置输出目录和数据结构
     def __init__(self):
         super().__init__("关键设备配置备份输出EXCEL基础任务")
@@ -63,6 +72,15 @@ class DeviceBackupTask(BaseTask):
 
     # 扫描LOG目录获取站点列表：按站点分组N9K ASA设备配置文件
     def items(self):
+        """扫描LOG目录获取站点列表
+        
+
+        按站点分组N9K ASA设备配置文件
+        
+
+        Returns:
+            list[str]: 站点列表
+        """
         from openpyxl import Workbook
 
         self._TODAY = datetime.now().strftime("%Y%m%d")
@@ -83,11 +101,13 @@ class DeviceBackupTask(BaseTask):
         GROUPED_PATHS: dict[str, dict[str, list[str]]] = {}
         RULES = self._get_device_classification_rules()
         
+
         # 只处理当天的文件：检查文件名是否以当天日期开头
         TODAY_STR = self._TODAY  # 格式：YYYYMMDD
         # 只匹配格式: YYYYMMDD-设备名.log（日期在文件名开头）
         DATE_PATTERN = re.compile(r'^' + re.escape(TODAY_STR) + r'-')
         
+
         for NAME in os.listdir(self._IN_DIR):
             if not NAME.lower().endswith(".log"):
                 continue
@@ -95,21 +115,24 @@ class DeviceBackupTask(BaseTask):
             if not os.path.isfile(FULL_PATH):
                 continue
             
+
             # 检查文件名是否以当天日期开头
             if not DATE_PATTERN.match(NAME):
                 continue  # 跳过不以当天日期开头的文件
 
-            CAT = self._CLASSIFY(NAME)  # 保持原分类
+            CAT = self._classify(NAME)  # 保持原分类
             if not CAT:
                 continue
             
+
             # 获取该分类的分组策略
             CAT_RULE = RULES.get(CAT, {})
             GROUP_BY_SITE = CAT_RULE.get("group_by_site", True)
             
+
             if GROUP_BY_SITE:
                 # 按站点分组
-                SITE = self._EXTRACT_SITE(NAME)
+                SITE = self._extract_site(NAME)
                 SITE_MAP = GROUPED_PATHS.setdefault(SITE, {})
                 SITE_MAP.setdefault(CAT, []).append(FULL_PATH)
             else:
@@ -175,9 +198,12 @@ class DeviceBackupTask(BaseTask):
                 "patterns": [
                     # CS + N9K + (01|02|03|04)，统一匹配模式（参数已为小写）
                     # 要求：包含n9k，且(CS+设备编号)或(CS连写模式如cs01)
-                    lambda OxidizedBackup_FILENAME: re.search(r"\bn9k\b", OxidizedBackup_FILENAME) and (
-                        (re.search(r"\bcs\b", OxidizedBackup_FILENAME) and re.search(r"(?:^|[^0-9])0?[1-4](?:[^0-9]|$)", OxidizedBackup_FILENAME)) or
-                        re.search(r"\bcs0?[1-4]", OxidizedBackup_FILENAME)
+                    lambda OxidizedBackup_FILENAME: (
+                        re.search(r"\bn9k\b", OxidizedBackup_FILENAME) and (
+                            (re.search(r"\bcs\b", OxidizedBackup_FILENAME) and
+                                re.search(r"(?:^|[^0-9])0?[1-4](?:[^0-9]|$)", OxidizedBackup_FILENAME)) or
+                            re.search(r"\bcs0?[1-4]", OxidizedBackup_FILENAME)
+                        )
                     )
                 ]
             },
@@ -188,10 +214,12 @@ class DeviceBackupTask(BaseTask):
                     # LINK + AS + (01|02)，统一匹配模式（参数已为小写）
                     # 支持：LINKAS连写（link.*as01）、LINK+AS+设备编号、LINK+AS01/02连写
                     lambda OxidizedBackup_FILENAME: (
-                        re.search(r"\blink.*as0?[12]\b", OxidizedBackup_FILENAME) or  # LINKAS连写模式（支持link和as之间任意字符）
-                        (re.search(r"\bas0?[12]\b", OxidizedBackup_FILENAME) and re.search(r"\blink\b", OxidizedBackup_FILENAME)) or  # LINK + AS01/02连写
-                        (re.search(r"\blink\b", OxidizedBackup_FILENAME) and re.search(r"\bas\b", OxidizedBackup_FILENAME) and 
-                         re.search(r"(?:^|[^0-9])0?[12](?:[^0-9]|$)", OxidizedBackup_FILENAME))  # LINK + AS + 设备编号
+                        re.search(r"\blink.*as0?[12]\b", OxidizedBackup_FILENAME) or
+                        (re.search(r"\bas0?[12]\b", OxidizedBackup_FILENAME) and
+                            re.search(r"\blink\b", OxidizedBackup_FILENAME)) or
+                        (re.search(r"\blink\b", OxidizedBackup_FILENAME) and
+                            re.search(r"\bas\b", OxidizedBackup_FILENAME) and
+                            re.search(r"(?:^|[^0-9])0?[12](?:[^0-9]|$)", OxidizedBackup_FILENAME))
                     )
                 ]
             },
@@ -200,7 +228,10 @@ class DeviceBackupTask(BaseTask):
                 "group_by_site": True,  # 按站点分组
                 "patterns": [
                     # 固定组合：fw01-frp 或 fw02-frp（参数已为小写）
-                    lambda OxidizedBackup_FILENAME: "fw01-frp" in OxidizedBackup_FILENAME or "fw02-frp" in OxidizedBackup_FILENAME
+                    lambda OxidizedBackup_FILENAME: (
+                        "fw01-frp" in OxidizedBackup_FILENAME or
+                        "fw02-frp" in OxidizedBackup_FILENAME
+                    )
                 ]
             },
             "cat4": {
@@ -209,7 +240,10 @@ class DeviceBackupTask(BaseTask):
                 "sheet_name": "LINKDS",  # 指定工作表名称
                 "patterns": [
                     # Link-DS + (01|02) + C9300/N9K（参数已为小写，合并为统一模式）
-                    lambda OxidizedBackup_FILENAME: "link-ds" in OxidizedBackup_FILENAME and re.search(r"0?[12]", OxidizedBackup_FILENAME),
+                    lambda OxidizedBackup_FILENAME: (
+                        "link-ds" in OxidizedBackup_FILENAME and
+                        re.search(r"0?[12]", OxidizedBackup_FILENAME)
+                    ),
                     # 支持连写模式（参数已为小写）
                     lambda OxidizedBackup_FILENAME: re.search(r"link[-_]?ds0?[12]", OxidizedBackup_FILENAME)
                 ]
@@ -220,7 +254,10 @@ class DeviceBackupTask(BaseTask):
                 "sheet_name": "BGP",  # 指定工作表名称
                 "patterns": [
                     # 只要包含 bgp 关键词即可（参数已为小写）
-                    lambda OxidizedBackup_FILENAME: ("bgp" in OxidizedBackup_FILENAME) or re.search(r"\bbgp\b", OxidizedBackup_FILENAME)
+                    lambda OxidizedBackup_FILENAME: (
+                        ("bgp" in OxidizedBackup_FILENAME) or
+                        re.search(r"\bbgp\b", OxidizedBackup_FILENAME)
+                    )
                 ]
             },
             "cat6": {
@@ -230,9 +267,10 @@ class DeviceBackupTask(BaseTask):
                     # OOB-DS + (01|02)，支持连写和分隔符
                     # 格式: OOB-DS01, OOB_DS01, OOB-DS02 等
                     lambda OxidizedBackup_FILENAME: (
-                        re.search(r"\boob[-_]?ds0?[12]\b", OxidizedBackup_FILENAME) or  # OOB-DS连写模式（支持-或_分隔符）
-                        (re.search(r"\boob\b", OxidizedBackup_FILENAME) and re.search(r"\bds\b", OxidizedBackup_FILENAME) and 
-                         re.search(r"(?:^|[^0-9])0?[12](?:[^0-9]|$)", OxidizedBackup_FILENAME))  # OOB + DS + 设备编号
+                        re.search(r"\boob[-_]?ds0?[12]\b", OxidizedBackup_FILENAME) or
+                        (re.search(r"\boob\b", OxidizedBackup_FILENAME) and
+                            re.search(r"\bds\b", OxidizedBackup_FILENAME) and
+                            re.search(r"(?:^|[^0-9])0?[12](?:[^0-9]|$)", OxidizedBackup_FILENAME))
                     )
                 ]
             }
@@ -240,11 +278,22 @@ class DeviceBackupTask(BaseTask):
 
     # 对目标文件进行分类：根据文件名模式将文件分为不同类别
     @staticmethod
-    def _CLASSIFY(FILENAME: str) -> Optional[str]:
+    def _classify(FILENAME: str) -> Optional[str]:
+        """对目标文件进行分类
+        
+
+        Args:
+            FILENAME: 文件名
+            
+
+        Returns:
+            Optional[str]: 分类ID，如果无法分类则返回None
+        """
         import re
         FILENAME_LOWER = FILENAME.lower()
         RULES = DeviceBackupTask._get_device_classification_rules()
         
+
         # 遍历所有分类规则
         for CAT_ID, RULE_CONFIG in RULES.items():
             for PATTERN_FUNC in RULE_CONFIG["patterns"]:
@@ -254,17 +303,48 @@ class DeviceBackupTask(BaseTask):
 
     # 从文件名提取站点名：解析文件名获取站点标识
     @staticmethod
-    def _EXTRACT_SITE(FILENAME: str) -> str:
+    def _extract_site(FILENAME: str) -> str:
+        """从文件名提取站点名
+        
+
+        Args:
+            FILENAME: 文件名
+            
+
+        Returns:
+            str: 站点名
+        """
         return extract_site_from_filename(FILENAME)
 
     # 生成安全的Excel工作表名称：确保工作表名称符合Excel规范
     @staticmethod
-    def _SAFE_SHEET_NAME(NAME: str) -> str:
+    def _safe_sheet_name(NAME: str) -> str:
+        """生成安全的Excel工作表名称
+        
+
+        Args:
+            NAME: 原始名称
+            
+
+        Returns:
+            str: 安全的Excel工作表名称
+        """
         return safe_sheet_name(NAME)
 
     # 根据设备类别截取配置内容：从指定起始行开始截取配置
-    # 根据设备类别截取配置内容
-    def _EXTRACT_CONFIG(self, LINES: list[str], CAT: str, FNAME: str) -> list[str]:
+    def _extract_config(self, LINES: list[str], CAT: str, FNAME: str) -> list[str]:
+        """根据设备类别截取配置内容
+        
+
+        Args:
+            LINES: 配置行列表
+            CAT: 设备类别
+            FNAME: 文件名
+            
+
+        Returns:
+            list[str]: 截取后的配置行列表
+        """
         if CAT == "cat1":  # NXOS N9K
             START_MARKER = "! show running-config"
             for LINE_INDEX, LINE in enumerate(LINES):
@@ -307,12 +387,22 @@ class DeviceBackupTask(BaseTask):
                 if LINE.strip().startswith(IOSXE_MARKER):
                     return LINES[LINE_INDEX:]  # IOS-XE 配置
         
+
         # 如果没找到标记，返回原始内容
         return LINES
 
     # 处理单个站点/工作表的配置备份：读取配置文件并生成Excel工作表
-    # 参数SITE可能是站点名（对于cat1/cat2/cat3）或工作表名（对于cat4/cat5）
     def run_single(self, SITE: str):
+        """处理单个站点/工作表的配置备份
+        
+
+        读取配置文件并生成Excel工作表
+        参数SITE可能是站点名（对于cat1/cat2/cat3）或工作表名（对于cat4/cat5）
+        
+
+        Args:
+            SITE: 站点名或工作表名
+        """
         from openpyxl.styles import Alignment
         from openpyxl.utils import get_column_letter
 
@@ -320,7 +410,7 @@ class DeviceBackupTask(BaseTask):
             self.add_result(Level.WARN, f"站点/工作表 {SITE} 跳过（未初始化或未找到文件）")
             return
 
-        WORKSHEET = self._WB.create_sheet(title=self._SAFE_SHEET_NAME(SITE))
+        WORKSHEET = self._WB.create_sheet(title=self._safe_sheet_name(SITE))
         WRAP = Alignment(wrap_text=True, vertical="top")
 
         COLUMN_INDEX = 1
@@ -335,13 +425,19 @@ class DeviceBackupTask(BaseTask):
                     with open(FULL_PATH, "r", encoding="utf-8", errors="ignore") as FILE_HANDLE:
                         LINES = FILE_HANDLE.read().splitlines()
                     
+
                     # 根据设备类别截取配置内容
-                    CONFIG_LINES = self._EXTRACT_CONFIG(LINES, CATEGORY, FILE_NAME)
+                    CONFIG_LINES = self._extract_config(LINES, CATEGORY, FILE_NAME)
                     
+
                 except Exception as EXCEPTION:
                     self.add_result(Level.ERROR, f"读取失败 {FILE_NAME}: {EXCEPTION}")
                     # 仍占一列留痕
-                    WORKSHEET.cell(row=1, column=COLUMN_INDEX, value=f"{FILE_NAME}（读取失败：{EXCEPTION}）").alignment = WRAP
+                    CELL = WORKSHEET.cell(
+                        row=1, column=COLUMN_INDEX,
+                        value=f"{FILE_NAME}（读取失败：{EXCEPTION}）"
+                    )
+                    CELL.alignment = WRAP
                     WORKSHEET.column_dimensions[get_column_letter(COLUMN_INDEX)].width = 80
                     COLUMN_INDEX += 1
                     continue

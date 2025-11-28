@@ -43,19 +43,25 @@ from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Font, PatternFill
 import xlsxwriter
 
+# 导入第三方库
+from tqdm import tqdm
+
 # 导入本地应用
 from .TaskBase import BaseTask, Level, CONFIG, safe_sheet_name
-from tqdm import tqdm
 
 # 解析ACL正则（复用ACLDup思想，提取必要子集）：支持 NXOS/IOS-XE/ASA，any/CIDR/IP+wildcard，端口eq/range与行尾log均可忽略
 NXOS_RE = re.compile(r"""
     ^\s*(?P<num>\d+)?\s*
     (?P<action>permit|deny)\s+
     (?P<proto>\S+)\s+
-    (?:(?P<src_any>any)|(?P<src_ip>\d+\.\d+\.\d+\.\d+)\s+(?P<src_wc>\d+\.\d+\.\d+\.\d+)|(?P<src_cidr>\d+\.\d+\.\d+\.\d+\/\d+))
+    (?:(?P<src_any>any)|
+       (?P<src_ip>\d+\.\d+\.\d+\.\d+)\s+(?P<src_wc>\d+\.\d+\.\d+\.\d+)|
+       (?P<src_cidr>\d+\.\d+\.\d+\.\d+\/\d+))
     (?:\s+(?:eq\s+\S+|range\s+\S+\s+\S+))*
     \s+
-    (?:(?P<dst_any>any)|(?P<dst_ip>\d+\.\d+\.\d+\.\d+)\s+(?P<dst_wc>\d+\.\d+\.\d+\.\d+)|(?P<dst_cidr>\d+\.\d+\.\d+\.\d+\/\d+))
+    (?:(?P<dst_any>any)|
+       (?P<dst_ip>\d+\.\d+\.\d+\.\d+)\s+(?P<dst_wc>\d+\.\d+\.\d+\.\d+)|
+       (?P<dst_cidr>\d+\.\d+\.\d+\.\d+\/\d+))
     (?:\s+(?:eq\s+\S+|range\s+\S+\s+\S+))*
     (?:\s+log)?
     \s*$
@@ -224,8 +230,14 @@ def parse_acl_line(text: str) -> Tuple[Optional[Tuple[IPv4Network, IPv4Network]]
     # 尝试匹配IOS-XE wildcard格式的ACL规则
     iosxe_wildcard_match = IOSXE_WC_RE.match(cleaned_line)
     if iosxe_wildcard_match:
-        source_network = ip_and_wildcard_to_network(iosxe_wildcard_match.group("srcip"), iosxe_wildcard_match.group("srcwc"))
-        destination_network = ip_and_wildcard_to_network(iosxe_wildcard_match.group("dstip"), iosxe_wildcard_match.group("dstwc"))
+        source_network = ip_and_wildcard_to_network(
+            iosxe_wildcard_match.group("srcip"),
+            iosxe_wildcard_match.group("srcwc")
+        )
+        destination_network = ip_and_wildcard_to_network(
+            iosxe_wildcard_match.group("dstip"),
+            iosxe_wildcard_match.group("dstwc")
+        )
         if source_network and destination_network:
             return (source_network, destination_network), None
         return None, "iosxe_wc_network_parse_fail"
@@ -242,8 +254,20 @@ def parse_acl_line(text: str) -> Tuple[Optional[Tuple[IPv4Network, IPv4Network]]
     # 尝试匹配IOS-XE混合格式的ACL规则（host和wildcard混合）
     iosxe_mix_match = IOSXE_MIX_RE.match(cleaned_line)
     if iosxe_mix_match:
-        source_network = host_to_network(iosxe_mix_match.group("srcip_h")) if iosxe_mix_match.group("srcip_h") else ip_and_wildcard_to_network(iosxe_mix_match.group("srcip_w"), iosxe_mix_match.group("srcwc_w"))
-        destination_network = host_to_network(iosxe_mix_match.group("dstip_h")) if iosxe_mix_match.group("dstip_h") else ip_and_wildcard_to_network(iosxe_mix_match.group("dstip_w"), iosxe_mix_match.group("dstwc_w"))
+        srcip_h = iosxe_mix_match.group("srcip_h")
+        srcip_w = iosxe_mix_match.group("srcip_w")
+        srcwc_w = iosxe_mix_match.group("srcwc_w")
+        source_network = (
+            host_to_network(srcip_h) if srcip_h
+            else ip_and_wildcard_to_network(srcip_w, srcwc_w)
+        )
+        dstip_h = iosxe_mix_match.group("dstip_h")
+        dstip_w = iosxe_mix_match.group("dstip_w")
+        dstwc_w = iosxe_mix_match.group("dstwc_w")
+        destination_network = (
+            host_to_network(dstip_h) if dstip_h
+            else ip_and_wildcard_to_network(dstip_w, dstwc_w)
+        )
         if source_network and destination_network:
             return (source_network, destination_network), None
         return None, "iosxe_mix_network_parse_fail"
@@ -257,12 +281,17 @@ def parse_acl_line(text: str) -> Tuple[Optional[Tuple[IPv4Network, IPv4Network]]
         else:
             source_network = any_to_network()
             
+
         # 处理目的网络
         if iosxe_any_match.group("dstip") and iosxe_any_match.group("dstwc"):
-            destination_network = ip_and_wildcard_to_network(iosxe_any_match.group("dstip"), iosxe_any_match.group("dstwc"))
+            destination_network = ip_and_wildcard_to_network(
+                iosxe_any_match.group("dstip"),
+                iosxe_any_match.group("dstwc")
+            )
         else:
             destination_network = any_to_network()
             
+
         if source_network and destination_network:
             return (source_network, destination_network), None
         return None, "iosxe_any_network_parse_fail"
@@ -272,6 +301,7 @@ def parse_acl_line(text: str) -> Tuple[Optional[Tuple[IPv4Network, IPv4Network]]
         src_str = asa_match.group("src")
         dst_str = asa_match.group("dst")
         
+
         # 处理源网络
         if src_str.lower() == "any":
             source_network = any_to_network()
@@ -280,6 +310,7 @@ def parse_acl_line(text: str) -> Tuple[Optional[Tuple[IPv4Network, IPv4Network]]
         else:
             source_network = host_to_network(src_str)
             
+
         # 处理目的网络
         if dst_str.lower() == "any":
             destination_network = any_to_network()
@@ -288,6 +319,7 @@ def parse_acl_line(text: str) -> Tuple[Optional[Tuple[IPv4Network, IPv4Network]]
         else:
             destination_network = host_to_network(dst_str)
             
+
         if source_network and destination_network:
             return (source_network, destination_network), None
         return None, "asa_network_parse_fail"
@@ -304,8 +336,15 @@ def parse_arp_table(arp_path: str) -> Set[IPv4Address]:
     try:
         from .TaskBase import CONFIG as _BASE_CONFIG, require_keys
         require_keys(_BASE_CONFIG, ["ACLArpCheckTask"], "root")
-        require_keys(_BASE_CONFIG["ACLArpCheckTask"], ["ignore_third_octet"], "ACLArpCheckTask")
-        ignore_octet_third_values = set(int(OCTET_VALUE) for OCTET_VALUE in _BASE_CONFIG["ACLArpCheckTask"]["ignore_third_octet"])
+        require_keys(
+            _BASE_CONFIG["ACLArpCheckTask"],
+            ["ignore_third_octet"],
+            "ACLArpCheckTask"
+        )
+        ignore_octet_third_values = set(
+            int(OCTET_VALUE)
+            for OCTET_VALUE in _BASE_CONFIG["ACLArpCheckTask"]["ignore_third_octet"]
+        )
     except Exception:
         ignore_octet_third_values = set()
 
@@ -379,6 +418,7 @@ def _is_acl_rule(text: str) -> bool:
     ]):
         return False
     
+
     # 只处理包含permit/deny的规则
     return 'permit' in text or 'deny' in text
 
@@ -389,12 +429,14 @@ def find_acl_blocks_in_column(worksheet, col):
     current_start = None
     found_vty = False  # 标记是否遇到登录ACL结束标记
     
+
     for ROW in range(1, worksheet.max_row + 1):
         cell_value = worksheet.cell(row=ROW, column=col).value
         if cell_value and isinstance(cell_value, str):
             text = str(cell_value).strip()
             text_lower = text.lower()
             
+
             # 业务ACL开始（排除登录ACL）
             if text.startswith('ip access-list '):
                 # 检查是否是登录ACL结束标记（包含vty和ip，忽略大小写）
@@ -412,10 +454,12 @@ def find_acl_blocks_in_column(worksheet, col):
                         acl_blocks.append((current_start, ROW - 1))
                     current_start = ROW
     
+
     # 处理最后一个ACL块（只有在没有遇到登录ACL结束标记时才处理）
     if not found_vty and current_start is not None:
         acl_blocks.append((current_start, worksheet.max_row))
     
+
     return acl_blocks
 
 
@@ -434,6 +478,7 @@ def create_rich_text_from_unicode_marked(text: str, workbook, color_type: str = 
         normal_format = workbook.add_format({'color': 'black'})
         return [normal_format, text]
     
+
     # 创建格式
     if color_type == 'red':
         color_format = workbook.add_format({'color': 'red'})
@@ -442,11 +487,14 @@ def create_rich_text_from_unicode_marked(text: str, workbook, color_type: str = 
     else:
         color_format = workbook.add_format({'color': 'black'})
     
+
     normal_format = workbook.add_format({'color': 'black'})
     
+
     result = []
     parts = text.split('·')
     
+
     for i, part in enumerate(parts):
         if part:  # 跳过空字符串
             if i % 2 == 0:  # 偶数索引：普通文本
@@ -456,22 +504,29 @@ def create_rich_text_from_unicode_marked(text: str, workbook, color_type: str = 
                 result.append(color_format)
                 result.append(part)
     
+
     return result
 
 # 处理单个ACL块内的ARP检测（使用Unicode标记方案）
 # 处理单个ACL块内的ARP检测，使用Unicode标记方案实现前导空格保留和部分文本标色
-def process_acl_block_with_unicode_marking(inputWorksheet, worksheet, column_index, start_row, end_row, arp_ok_ip_addresses, no_use_ranges, acl_config, workbook, sheet_name, platform_network_map):
+def process_acl_block_with_unicode_marking(
+    inputWorksheet, worksheet, column_index, start_row, end_row,
+    arp_ok_ip_addresses, no_use_ranges, acl_config, workbook,
+    sheet_name, platform_network_map
+):
     red_count = 0
     yellow_count = 0
     total_count = 0
     colored_rules_info = []
     
+
     # 创建格式
     red_format = workbook.add_format({'color': 'red'})
     orange_format = workbook.add_format({'color': 'orange'})
     normal_format = workbook.add_format({'color': 'black'})
     bg_format = workbook.add_format({'bg_color': '#E6F3FF'})
     
+
     for ROW in range(start_row, end_row + 1):
         cell_value = inputWorksheet.cell(row=ROW, column=column_index).value
         if cell_value is None:
@@ -480,10 +535,12 @@ def process_acl_block_with_unicode_marking(inputWorksheet, worksheet, column_ind
         if not cleaned_text:
             continue
         
+
         # 只处理真正的ACL规则，忽略证书等数据
         if not _is_acl_rule(cleaned_text):
             continue
         
+
         # 解析ACL规则
         parsed, err = parse_acl_line(cleaned_text)
         if not parsed:
@@ -494,23 +551,28 @@ def process_acl_block_with_unicode_marking(inputWorksheet, worksheet, column_ind
         source_hit = check_arp_match_optimized(source_network, arp_ok_ip_addresses)
         destination_hit = check_arp_match_optimized(destination_network, arp_ok_ip_addresses)
         
+
         # 检查是否命中 NoUseIPRange
         source_no_use = check_no_use_ip_range(source_network, no_use_ranges)
         destination_no_use = check_no_use_ip_range(destination_network, no_use_ranges)
         
+
         # 检查源和目的是否包含 any (0.0.0.0/0)
         src_is_any = str(source_network) == "0.0.0.0/0"
         dst_is_any = str(destination_network) == "0.0.0.0/0"
         
+
         # 检查是否包含需要忽略的网段（如X.X.108.X）
         ignore_octet_third_values = acl_config["ignore_third_octet"]
         src_should_ignore = False
         dst_should_ignore = False
         
+
         if ignore_octet_third_values:
             src_str = str(source_network.network_address)
             dst_str = str(destination_network.network_address)
             
+
             # 检查源网络是否包含需要忽略的第三段
             if '.' in src_str:
                 src_parts = src_str.split('.')
@@ -519,6 +581,7 @@ def process_acl_block_with_unicode_marking(inputWorksheet, worksheet, column_ind
                     if src_third in ignore_octet_third_values:
                         src_should_ignore = True
             
+
             # 检查目的网络是否包含需要忽略的第三段
             if '.' in dst_str:
                 dst_parts = dst_str.split('.')
@@ -527,11 +590,13 @@ def process_acl_block_with_unicode_marking(inputWorksheet, worksheet, column_ind
                     if dst_third in ignore_octet_third_values:
                         dst_should_ignore = True
         
+
         # 检查网络是否在平台网段内（从公共配置读取）
         platform_networks = platform_network_map.get(sheet_name, [])
         src_in_platform = False
         dst_in_platform = False
         
+
         if platform_networks:
             # 检查源网络是否在平台网段内（重叠或包含关系）
             for platform_network in platform_networks:
@@ -544,6 +609,7 @@ def process_acl_block_with_unicode_marking(inputWorksheet, worksheet, column_ind
                     dst_in_platform = True
                     break
         
+
         # 检测逻辑：只检测在平台网段内的网络，且忽略ignore_third_octet
         if src_should_ignore or dst_should_ignore:
             # 如果源或目的网络包含需要忽略的网段（如X.X.108.X），则不检测
@@ -583,9 +649,11 @@ def process_acl_block_with_unicode_marking(inputWorksheet, worksheet, column_ind
         if should_detect:
             total_count += 1
             
+
             # 获取原始文本（保留前导空格）
             original_text = str(cell_value)
             
+
             # 标色逻辑：使用Unicode标记方案
             if source_no_use or destination_no_use:
                 # 命中NoUseIPRange（IP前缀模糊匹配 X.X.X.），橙色标色
@@ -595,6 +663,7 @@ def process_acl_block_with_unicode_marking(inputWorksheet, worksheet, column_ind
                 if destination_no_use:
                     keywords_to_mark.append(str(destination_network.network_address))
                 
+
                 # 使用Unicode标记
                 marked_text = mark_keywords_with_unicode(original_text, keywords_to_mark)
                 rich_text = create_rich_text_from_unicode_marked(marked_text, workbook, 'orange')
@@ -604,6 +673,7 @@ def process_acl_block_with_unicode_marking(inputWorksheet, worksheet, column_ind
                     worksheet.write(ROW-1, column_index-1, original_text, bg_format)
                 yellow_count += 1
                 
+
                 # 记录标色规则信息
                 colored_rules_info.append({
                     'row': ROW,
@@ -620,6 +690,7 @@ def process_acl_block_with_unicode_marking(inputWorksheet, worksheet, column_ind
                 if not destination_hit and not dst_is_any:
                     keywords_to_mark.append(str(destination_network.network_address))
                 
+
                 # 使用Unicode标记
                 marked_text = mark_keywords_with_unicode(original_text, keywords_to_mark)
                 rich_text = create_rich_text_from_unicode_marked(marked_text, workbook, 'red')
@@ -629,6 +700,7 @@ def process_acl_block_with_unicode_marking(inputWorksheet, worksheet, column_ind
                     worksheet.write(ROW-1, column_index-1, original_text, bg_format)
                 red_count += 1
                 
+
                 # 记录标色规则信息
                 colored_rules_info.append({
                     'row': ROW,
@@ -642,6 +714,7 @@ def process_acl_block_with_unicode_marking(inputWorksheet, worksheet, column_ind
             original_text = str(cell_value)
             worksheet.write(ROW-1, column_index-1, original_text)
     
+
     return red_count, yellow_count, total_count, colored_rules_info
 
 
@@ -670,7 +743,11 @@ class ACLArpCheckTask(BaseTask):
             return []
         try:
             inputWorkbook = load_workbook(self.INPUT_PATH)
-            sheet_names = [inputWorksheet.title for inputWorksheet in inputWorkbook.worksheets if inputWorksheet.title != 'Report']
+            sheet_names = [
+                inputWorksheet.title
+                for inputWorksheet in inputWorkbook.worksheets
+                if inputWorksheet.title != 'Report'
+            ]
             inputWorkbook.close()
             return sheet_names
         except Exception:
@@ -681,6 +758,7 @@ class ACLArpCheckTask(BaseTask):
         # 这个方法现在只用于统计，实际处理在run方法中完成
         pass
     
+
     # 重写run方法：直接在源文件中进行标色修改
     # 执行ACL无ARP匹配检查任务
     def run(self) -> None:
@@ -691,9 +769,12 @@ class ACLArpCheckTask(BaseTask):
             return
 
         # 使用父类的进度条处理
+
         from tqdm import tqdm
+
         from .TaskBase import BAR_FORMAT, SHOW_PROGRESS
         
+
         progress = tqdm(
             total=len(sheet_names),
             desc=self.NAME,
@@ -703,6 +784,7 @@ class ACLArpCheckTask(BaseTask):
             bar_format=BAR_FORMAT,
         ) if SHOW_PROGRESS else None
         
+
         try:
             # 确保输出目录存在
             os.makedirs(self.OUTPUT_DIR, exist_ok=True)
@@ -717,13 +799,16 @@ class ACLArpCheckTask(BaseTask):
                     except Exception:
                         pass
             
+
             # 生成输出文件名（覆盖原文件）
             output_filename = f"{datetime.now().strftime('%Y%m%d')}-ACL无ARP匹配检查.xlsx"
             output_path = os.path.join(self.OUTPUT_DIR, output_filename)
             
+
             # 执行 ACL 无ARP匹配检查，直接在源文件中标色
             per_sheet_stats = self._process_file_with_coloring(self.INPUT_PATH, output_path, progress)
             
+
             # 生成操作脚本和回退脚本（仅对有标色的工作表）
             try:
                 self._generate_operation_scripts(self.INPUT_PATH, per_sheet_stats)
@@ -732,13 +817,19 @@ class ACLArpCheckTask(BaseTask):
                 import traceback
                 traceback.print_exc()
             
+
             # 添加每个工作表的结果记录
             for sheet_name, stats in per_sheet_stats.items():
                 self.add_result(
                     Level.OK, 
-                    f"站点{sheet_name}处理完成：无ARP精确匹配(红色关键字标色)={stats['red']}，命中NoUseIPRange模糊匹配(橙色关键字标色)={stats['yellow']}，总计={stats['total']}条规则"
+
+                    f"站点{sheet_name}处理完成："
+                    f"无ARP精确匹配(红色关键字标色)={stats['red']}，"
+                    f"命中NoUseIPRange模糊匹配(橙色关键字标色)={stats['yellow']}，"
+                    f"总计={stats['total']}条规则"
                 )
             
+
             # 汇总统计（通过Config.yaml的enable_summary_output开关控制，仅输出到LOG文件）
             try:
                 from .TaskBase import require_keys
@@ -747,24 +838,32 @@ class ACLArpCheckTask(BaseTask):
             except Exception:
                 enable_summary = False
             
+
             if enable_summary:
                 total_red = sum(stats.get('red', 0) for stats in per_sheet_stats.values())
                 total_yellow = sum(stats.get('yellow', 0) for stats in per_sheet_stats.values())
                 total_count = sum(stats.get('total', 0) for stats in per_sheet_stats.values())
                 self.add_result(
                     Level.OK,
-                    f"ACL无ARP匹配检查汇总：处理{len(per_sheet_stats)}个站点，无ARP精确匹配(红色关键字标色)={total_red}，命中NoUseIPRange模糊匹配(橙色关键字标色)={total_yellow}，总计={total_count}条规则"
+                    f"ACL无ARP匹配检查汇总：处理{len(per_sheet_stats)}个站点，"
+                    f"无ARP精确匹配(红色关键字标色)={total_red}，"
+                    f"命中NoUseIPRange模糊匹配(橙色关键字标色)={total_yellow}，"
+                    f"总计={total_count}条规则"
                 )
                 
+
         except Exception as error:
             self.add_result(Level.ERROR, f"ACL 无ARP匹配检查失败：{str(error)}")
         finally:
             if progress:
                 progress.close()
     
+
     # 处理文件并直接在源文件中标色（类似ACLDupCheckTask）
     # 处理Excel文件，使用Unicode标记方案实现前导空格保留和部分文本标色
-    def _process_file_with_coloring(self, input_path: str, output_path: str, progress=None) -> Dict[str, Dict[str, int]]:
+    def _process_file_with_coloring(
+        self, input_path: str, output_path: str, progress=None
+    ) -> Dict[str, Dict[str, int]]:
         if not os.path.exists(input_path):
             self.add_result(Level.ERROR, f"未找到输入文件: {input_path}")
             return {}
@@ -782,6 +881,7 @@ class ACLArpCheckTask(BaseTask):
         require_keys(CONFIG["ACLArpCheckTask"], ["ignore_third_octet"], "ACLArpCheckTask")
         acl_config = CONFIG["ACLArpCheckTask"]
         
+
         # 加载平台网段映射（从公共配置读取）
         platform_network_map = {}
         try:
@@ -796,18 +896,21 @@ class ACLArpCheckTask(BaseTask):
         # 使用xlsxwriter创建新的工作簿
         workbook = xlsxwriter.Workbook(output_path)
         
+
         # 创建格式
         red_format = workbook.add_format({'color': 'red'})
         orange_format = workbook.add_format({'color': 'orange'})
         normal_format = workbook.add_format({'color': 'black'})
         bg_format = workbook.add_format({'bg_color': '#E6F3FF'})
         
+
         per_sheet_stats: Dict[str, Dict[str, int]] = {}
         colored_rules: Dict[str, List[Dict]] = {}  # 存储标色的规则信息
 
         # 读取原始文件
         inputWorkbook = load_workbook(input_path)
         
+
         for inputWorksheet in inputWorkbook.worksheets:
             sheet_name = inputWorksheet.title
             if sheet_name == 'Report':
@@ -818,9 +921,11 @@ class ACLArpCheckTask(BaseTask):
             sheet_total_count = 0
             sheet_colored_rules = []
             
+
             # 创建新的工作表
             worksheet = workbook.add_worksheet(sheet_name)
             
+
             # 重新设置列宽（确保不被覆盖）
             for col_idx in range(1, inputWorksheet.max_column + 1):
                 column_letter = inputWorksheet.cell(row=1, column=col_idx).column_letter
@@ -829,6 +934,7 @@ class ACLArpCheckTask(BaseTask):
                     if col_dim.width:
                         worksheet.set_column(col_idx-1, col_idx-1, col_dim.width)
             
+
             # 先复制所有原始数据（保留边界以外的内容）
             for row_idx in range(1, inputWorksheet.max_row + 1):
                 for col_idx in range(1, inputWorksheet.max_column + 1):
@@ -838,36 +944,48 @@ class ACLArpCheckTask(BaseTask):
                         cell_value = str(cell.value)
                         worksheet.write(row_idx-1, col_idx-1, cell_value)
             
+
             # 获取工作表的最大列数
             max_col = inputWorksheet.max_column
             
+
             # 遍历所有列，使用ACL块优化处理
             for col_idx in range(1, max_col + 1):
                 # 找到该列中的ACL块
                 acl_blocks = find_acl_blocks_in_column(inputWorksheet, col_idx)
                 
+
                 # 处理每个ACL块
                 for start_row, end_row in acl_blocks:
-                    red_count, yellow_count, total_count, colored_rules_info = process_acl_block_with_unicode_marking(
-                        inputWorksheet, worksheet, col_idx, start_row, end_row, arp_ok_ip_addresses, no_use_ranges, acl_config, workbook, sheet_name, platform_network_map
+                    red_count, yellow_count, total_count, colored_rules_info = (
+                        process_acl_block_with_unicode_marking(
+                            inputWorksheet, worksheet, col_idx, start_row, end_row,
+                            arp_ok_ip_addresses, no_use_ranges, acl_config,
+                            workbook, sheet_name, platform_network_map
+                        )
                     )
                     
+
                     sheet_red_count += red_count
                     sheet_yellow_count += yellow_count
                     sheet_total_count += total_count
                     
+
                     # 收集标色的规则信息
                     for rule_info in colored_rules_info:
                         sheet_colored_rules.append(rule_info)
             
+
             per_sheet_stats[sheet_name] = {
                 "red": sheet_red_count,
                 "yellow": sheet_yellow_count,
                 "total": sheet_total_count
             }
             
+
             colored_rules[sheet_name] = sheet_colored_rules
             
+
             # 更新进度条
             if progress:
                 progress.update(1)
@@ -876,13 +994,17 @@ class ACLArpCheckTask(BaseTask):
         workbook.close()
         inputWorkbook.close()
         
+
         # 将标色规则信息存储到实例变量中
         self.colored_rules = colored_rules
         
+
         return per_sheet_stats
 
     # 从指定列中向上搜索ACL名称，返回(ACL名称, 是否包含extended)
-    def _find_acl_name_in_column(self, worksheet, column_index: int, start_row_index: int) -> Optional[Tuple[str, bool]]:
+    def _find_acl_name_in_column(
+        self, worksheet, column_index: int, start_row_index: int
+    ) -> Optional[Tuple[str, bool]]:
         # 从start_row向上搜索，最多搜索2000行（增加搜索范围）
         for ROW in range(start_row_index, max(1, start_row_index - 2000), -1):
             cell_value = worksheet.cell(row=ROW, column=column_index).value
@@ -896,6 +1018,7 @@ class ACLArpCheckTask(BaseTask):
                     has_extended = 'extended' in cell_str.lower()
                     return (acl_name, has_extended)
         
+
         return None
 
     # 生成操作脚本和回退脚本（仅对有标色的工作表）
@@ -907,50 +1030,68 @@ class ACLArpCheckTask(BaseTask):
             config_dir = os.path.join("LOG", "ACLArpCheckTask", "ConfigureOutput")
             os.makedirs(config_dir, exist_ok=True)
             
+
             # 读取原始Excel文件
             inputWorkbook = load_workbook(input_path)
             
+
             # 遍历所有工作表，只处理有标色的工作表
             for inputWorksheet in inputWorkbook.worksheets:
                 sheet_name = inputWorksheet.title
                 if sheet_name == 'Report':
                         continue
                 
+
                 # 获取统计信息
                 stats = per_sheet_stats.get(sheet_name, {"red": 0, "yellow": 0, "total": 0})
                 
+
                 # 只处理有标色的工作表
                 if stats["total"] == 0:
                         continue
                 
+
                 # 获取该工作表的标色规则信息
                 colored_rules = getattr(self, 'colored_rules', {}).get(sheet_name, [])
                 
+
                 # 生成文件名（带日期前缀）
                 operation_file = os.path.join(config_dir, f"{date_str}-{sheet_name}操作脚本.log")
                 rollback_file = os.path.join(config_dir, f"{date_str}-{sheet_name}回退脚本.log")
                 
+
                 with open(operation_file, 'w', encoding='utf-8') as operationLogFile, \
                      open(rollback_file, 'w', encoding='utf-8') as rollbackLogFile:
                     
+
                     # 写入文件头
-                    operationLogFile.write(f"# {sheet_name}操作脚本 - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-                    operationLogFile.write(f"# 统计: 红色标记={stats['red']}, 橙色标记={stats['yellow']}, 总计={stats['total']}\n\n")
+                    timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                    operationLogFile.write(
+                        f"# {sheet_name}操作脚本 - {timestamp}\n"
+                    )
+                    operationLogFile.write(
+                        f"# 统计: 红色标记={stats['red']}, "
+                        f"橙色标记={stats['yellow']}, 总计={stats['total']}\n\n"
+                    )
                     
+
                     rollbackLogFile.write(f"# {sheet_name}回退脚本 - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
                     rollbackLogFile.write(f"# 统计: 红色标记={stats['red']}, 橙色标记={stats['yellow']}, 总计={stats['total']}\n\n")
                     
+
                     # 按设备（列）分组处理标色规则
                     device_groups = {}
                     for rule_info in colored_rules:
                         column_index_value = rule_info['column']
                         row_index_value = rule_info['row']
                         
+
                         # 获取设备信息（从第1行获取设备名称）
                         device_name = None
                         if inputWorksheet.cell(row=1, column=column_index_value).value:
                             device_name = str(inputWorksheet.cell(row=1, column=column_index_value).value).strip()
                         
+
                         if device_name:
                             if column_index_value not in device_groups:
                                 device_groups[column_index_value] = {
@@ -959,21 +1100,25 @@ class ACLArpCheckTask(BaseTask):
                                 }
                             device_groups[column_index_value]['rules'].append(rule_info)
                     
+
                     # 遍历设备组
                     for column_index_key, device_info in device_groups.items():
                         device_name = device_info['device_name']
                         rules = device_info['rules']
                         
+
                         # 写入设备信息头
                         operationLogFile.write(f"#####{device_name}#####\n")
                         rollbackLogFile.write(f"#####{device_name}#####\n")
                         
+
                         # 按ACL名称分组该设备的规则（保留extended信息）
                         acl_groups = {}
                         for rule_info in rules:
                             row_index_value = rule_info['row']
                             acl_info = self._find_acl_name_in_column(inputWorksheet, column_index_key, row_index_value)
                             
+
                             if acl_info:
                                 acl_name, has_extended = acl_info
                                 # 使用(acl_name, has_extended)作为键，确保同一ACL的extended信息一致
@@ -982,6 +1127,7 @@ class ACLArpCheckTask(BaseTask):
                                     acl_groups[acl_key] = []
                                 acl_groups[acl_key].append(rule_info)
                         
+
                         # 遍历该设备的ACL组
                         for (acl_name, has_extended), acl_rules in acl_groups.items():
                             # 根据原始ACL定义是否包含extended来决定是否添加extended关键字
@@ -992,29 +1138,44 @@ class ACLArpCheckTask(BaseTask):
                                 operationLogFile.write(f"ip access-list {acl_name}\n")
                                 rollbackLogFile.write(f"ip access-list {acl_name}\n")
                             
+
                             # 写入操作脚本（删除规则）
                             for rule_info in acl_rules:
                                 rule_number = rule_info['rule_number']
                                 if rule_number:
                                     operationLogFile.write(f" no {rule_number}\n")
                             
+
                             operationLogFile.write("\n")
                             
+
                             # 写入回退脚本（恢复规则）
                             for rule_info in acl_rules:
                                 rule_text = rule_info['rule_text']
                                 rollbackLogFile.write(f" {rule_text}\n")
                             
+
                             rollbackLogFile.write("\n")
             
+
             inputWorkbook.close()
             
+
             # 记录生成的文件
             for sheet_name, stats in per_sheet_stats.items():
                 if stats["total"] > 0:
-                    self.add_result(Level.OK, f"生成{sheet_name}操作脚本: LOG/ACLArpCheckTask/ConfigureOutput/{date_str}-{sheet_name}操作脚本.log")
-                    self.add_result(Level.OK, f"生成{sheet_name}回退脚本: LOG/ACLArpCheckTask/ConfigureOutput/{date_str}-{sheet_name}回退脚本.log")
+                    op_script = (
+                        f"LOG/ACLArpCheckTask/ConfigureOutput/"
+                        f"{date_str}-{sheet_name}操作脚本.log"
+                    )
+                    self.add_result(Level.OK, f"生成{sheet_name}操作脚本: {op_script}")
+                    rb_script = (
+                        f"LOG/ACLArpCheckTask/ConfigureOutput/"
+                        f"{date_str}-{sheet_name}回退脚本.log"
+                    )
+                    self.add_result(Level.OK, f"生成{sheet_name}回退脚本: {rb_script}")
             
+
         except Exception as error:
             self.add_result(Level.ERROR, f"生成操作脚本失败: {error}")
 

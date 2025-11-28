@@ -47,23 +47,49 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 # 导入本地应用
-from .TaskBase import BaseTask, Level, CONFIG, WEB_MAX_WORKERS, WEB_DELAY_RANGE, DEFAULT_HTTP_TIMEOUT, require_keys
+from .TaskBase import (
+    BaseTask, Level, CONFIG, WEB_MAX_WORKERS, WEB_DELAY_RANGE,
+    DEFAULT_HTTP_TIMEOUT, require_keys
+)
 
 # 安全文件名处理函数：将特殊字符替换为下划线，确保文件名合法
 def safe_filename(NAME: str) -> str:
+    """将文件名中的特殊字符替换为下划线，确保文件名合法
+    
+
+    Args:
+        NAME: 原始文件名
+        
+
+    Returns:
+        str: 处理后的安全文件名
+    """
     return re.sub(r'[\\/:*?"<>|]+', "_", str(NAME)).strip()
 
 # Oxidized设备配置备份任务类：从Oxidized服务获取设备配置并保存到本地
 class OxidizedTask(BaseTask):
+    """Oxidized设备配置备份任务
     
+
+    从Oxidized服务器备份设备配置，支持多服务器并行处理，
+    实现设备级和节点级统计分离
+    """
+    
+
     # 初始化Oxidized任务：设置任务名称、配置URL列表和日志目录
     def __init__(self):
         super().__init__("Oxidized设备配置本地备份")
         
+
         # 验证OxidizedTask专用配置
         require_keys(CONFIG, ["OxidizedTask"], "root")
-        require_keys(CONFIG["OxidizedTask"], ["base_urls", "ignore_device_prefixes"], "OxidizedTask")
+        require_keys(
+            CONFIG["OxidizedTask"],
+            ["base_urls", "ignore_device_prefixes"],
+            "OxidizedTask"
+        )
         
+
         self.BASE_URLS: list[str] = CONFIG["OxidizedTask"]["base_urls"]
         # 自己获取日志目录（必须配置）
         require_keys(CONFIG, ["settings"], "root")
@@ -80,18 +106,32 @@ class OxidizedTask(BaseTask):
 
     # 返回要处理的Oxidized服务URL列表
     def items(self):
+        """返回要处理的Oxidized服务URL列表
+        
+
+        Returns:
+            list[str]: Oxidized服务URL列表
+        """
         return self.BASE_URLS
 
     # 执行单个Oxidized服务的设备配置备份：获取设备列表并下载配置
     def run_single(self, BASE_URL: str) -> None:
+        """执行单个Oxidized服务的设备配置备份
+        
+
+        Args:
+            BASE_URL: Oxidized服务的基础URL
+        """
         # 初始化计数器
         SUCCEEDED, FAILED = 0, 0
         LOCAL_BACKUP_COUNT = 0
         TODAY_STR = datetime.now().strftime("%Y%m%d")
         
+
         # 确保OxidizedTaskBackup目录存在
         os.makedirs(self.LOG_DIR, exist_ok=True)
         
+
         try:
             SESSION = requests.Session()
             # 连接池收紧 + 429/50x 自动重试 + UA
@@ -109,7 +149,10 @@ class OxidizedTask(BaseTask):
             )
             SESSION.mount("http://", ADAPTER)
             SESSION.mount("https://", ADAPTER)
-            SESSION.headers.update({"User-Agent": "FATTools/1.0", "Accept-Encoding": "gzip, deflate"})
+            SESSION.headers.update({
+                "User-Agent": "FATTools/1.0",
+                "Accept-Encoding": "gzip, deflate"
+            })
             RESP = SESSION.get(BASE_URL, timeout=(DEFAULT_HTTP_TIMEOUT, DEFAULT_HTTP_TIMEOUT))
             RESP.raise_for_status()
 
@@ -123,9 +166,11 @@ class OxidizedTask(BaseTask):
         DEVICE_NAMES = TREE.xpath("//table/tbody/tr/td[1]/a/text()")
         GROUP_NAMES = TREE.xpath("//table/tbody/tr/td[3]/a/text()")
         
+
         # 获取Last Status状态 - 尝试多种XPath
         STATUS_ELEMENTS = TREE.xpath("//*[@id='nodesTable']/tbody/tr/td[4]/div")
         
+
         # 如果第一种XPath没找到，尝试其他可能的XPath
         if not STATUS_ELEMENTS:
             STATUS_ELEMENTS = TREE.xpath("//table/tbody/tr/td[4]/div")
@@ -135,8 +180,12 @@ class OxidizedTask(BaseTask):
             STATUS_ELEMENTS = TREE.xpath("//td[4]/div")
         if not STATUS_ELEMENTS:
             # 尝试查找所有包含class的div元素
-            STATUS_ELEMENTS = TREE.xpath("//div[@class='success' or @class='no_connection' or @class='never' or @class='failing']")
+            STATUS_ELEMENTS = TREE.xpath(
+                "//div[@class='success' or @class='no_connection' "
+                "or @class='never' or @class='failing']"
+            )
         
+
         DEVICE_STATUSES = []
         for DIV in STATUS_ELEMENTS:
             # 检查div的class属性，提取状态信息
@@ -152,6 +201,7 @@ class OxidizedTask(BaseTask):
                 else:
                     DEVICE_STATUSES.append('unknown')
         
+
         # 如果状态元素数量不匹配，用unknown填充
         while len(DEVICE_STATUSES) < len(DEVICE_NAMES):
             DEVICE_STATUSES.append('unknown')
@@ -161,10 +211,12 @@ class OxidizedTask(BaseTask):
             DEVICE = DEVICE_NAME.strip()
             GROUP = GROUP_NAME.strip()
             
+
             # 检查是否忽略该设备
             if any(DEVICE.startswith(PREFIX) for PREFIX in self.IGNORE_DEVICE_PREFIXES):
                 continue
             
+
             # 根据Last Status判断设备状态
             if STATUS == 'success':
                 SUCCEEDED += 1
@@ -176,10 +228,12 @@ class OxidizedTask(BaseTask):
             DEVICE = DEVICE_NAME.strip()
             GROUP = GROUP_NAME.strip()
             
+
             # 检查是否忽略该设备
             if any(DEVICE.startswith(PREFIX) for PREFIX in self.IGNORE_DEVICE_PREFIXES):
                 continue
             
+
             # 处理success状态的设备
             if STATUS == 'success':
                 # 尝试获取配置
@@ -188,10 +242,14 @@ class OxidizedTask(BaseTask):
                     CFG_RESP = SESSION.get(FETCH_URL, timeout=DEFAULT_HTTP_TIMEOUT)
                     CFG_RESP.raise_for_status()
                     
+
                     # 检查响应内容是否为"node not found"
                     if "node not found" in CFG_RESP.text.lower():
                         # 设备失败：记录到results和设备列表
-                        self.add_result(Level.ERROR, f"{BASE_URL}-{DEVICE}({GROUP}) 节点未找到 - Oxidized备份失败")
+                        self.add_result(
+                            Level.ERROR,
+                            f"{BASE_URL}-{DEVICE}({GROUP}) 节点未找到 - Oxidized备份失败"
+                        )
                         self.ALL_DEVICES.append({
                             'base_url': BASE_URL,
                             'device': DEVICE,
@@ -202,7 +260,11 @@ class OxidizedTask(BaseTask):
                         FAILED += 1
                         continue
                     
-                    LOG_PATH = os.path.join(self.LOG_DIR, f"{TODAY_STR}-{safe_filename(DEVICE)}.log")
+
+                    LOG_PATH = os.path.join(
+                        self.LOG_DIR,
+                        f"{TODAY_STR}-{safe_filename(DEVICE)}.log"
+                    )
                     with open(LOG_PATH, "w", encoding="utf-8") as FILE_HANDLE:
                         FILE_HANDLE.write(CFG_RESP.text)
                     LOCAL_BACKUP_COUNT += 1
@@ -231,7 +293,10 @@ class OxidizedTask(BaseTask):
             else:
                 # 处理非success状态的设备（no_connection, never, failing等）
                 # 设备失败：记录到results和设备列表
-                self.add_result(Level.ERROR, f"{BASE_URL}-{DEVICE}({GROUP}) Oxidized备份失败 - {STATUS}")
+                self.add_result(
+                    Level.ERROR,
+                    f"{BASE_URL}-{DEVICE}({GROUP}) Oxidized备份失败 - {STATUS}"
+                )
                 self.ALL_DEVICES.append({
                     'base_url': BASE_URL,
                     'device': DEVICE,
@@ -246,15 +311,23 @@ class OxidizedTask(BaseTask):
 
     # 重写run方法，在所有节点处理完成后统一输出LOG
     def run(self):
+        """执行所有Oxidized服务的设备配置备份任务
+        
+
+        重写父类方法，在所有节点处理完成后统一输出LOG和打包备份文件
+        """
         # 清空设备列表和计数器
         self.ALL_DEVICES = []
         self.TOTAL_FAILED = 0
         self.TOTAL_SUCCEEDED = 0
         
+
         # 调用父类的run方法处理所有节点
         super().run()
         
+
         
+
         # 直接更新主计数器，不通过add_result避免写入LOG
         self._update_main_counters()
         # 打包历史（仅打包非今日的备份文件）

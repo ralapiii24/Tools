@@ -18,15 +18,28 @@ from typing import Dict, Optional, Tuple
 import paramiko
 
 # 导入本地应用
-from .TaskBase import BaseTask, Level, CONFIG, decrypt_password, create_ssh_connection, ssh_exec, grade_percent, require_keys
+from .TaskBase import (
+    BaseTask, Level, CONFIG, decrypt_password, create_ssh_connection,
+    ssh_exec, grade_percent, require_keys
+)
 
 # 验证ESServer配置：检查Linux服务器任务所需的配置项
 require_keys(CONFIG, ["ESServer"], "root")
-require_keys(CONFIG["ESServer"], ["port", "thresholds", "ESLogstashTask", "ESBaseTask", "ESFlowTask"], "ESServer")
+require_keys(
+    CONFIG["ESServer"],
+    ["port", "thresholds", "ESLogstashTask", "ESBaseTask", "ESFlowTask"],
+    "ESServer"
+)
 
 # Linux 服务器巡检基类（df -h + free -m）
 # Linux服务器巡检基类：专门用于Linux服务器的巡检任务，提供内存和磁盘检查功能
 class BaseLinuxServerTask(BaseTask):
+    """Linux服务器巡检基类
+    
+
+    提供Linux服务器巡检的通用功能，供多个服务器巡检任务共用
+    检查内存和磁盘使用情况
+    """
     # 初始化Linux服务器巡检任务：设置SSH连接参数和性能阈值
     def __init__(self, name: str, section_key: str, mem_warn: int, mem_crit: int):
         super().__init__(name)
@@ -44,6 +57,7 @@ class BaseLinuxServerTask(BaseTask):
         self.MEM_WARN = int(mem_warn)
         self.MEM_CRIT = int(mem_crit)
         
+
         # 根据任务类型设置不同的描述
         if section_key == "ESLogstashTask":
             self.SERVICE_TYPE = "日志系统LOGSTASH"
@@ -56,6 +70,12 @@ class BaseLinuxServerTask(BaseTask):
 
     # 返回要巡检的主机列表：从配置中获取主机名和IP地址映射
     def items(self):
+        """返回要巡检的主机列表
+        
+
+        Returns:
+            list: 主机名和IP地址映射的列表
+        """
         return list(self.HOSTS_MAP.items())
 
     # 创建SSH连接：建立到指定主机的SSH连接
@@ -97,6 +117,15 @@ class BaseLinuxServerTask(BaseTask):
 
     # 执行单个服务器的巡检：检查内存和磁盘使用情况
     def run_single(self, item: Tuple[str, str]) -> None:
+        """执行单个服务器的巡检
+        
+
+        检查内存和磁盘使用情况
+        
+
+        Args:
+            item: (server_name, ip_addr)元组
+        """
         server_name, ip_addr = item
         ssh: Optional[paramiko.SSHClient] = None
         try:
@@ -121,14 +150,20 @@ class BaseLinuxServerTask(BaseTask):
             self.add_result(Level.ERROR, f"站点{server_name}{self.SERVICE_TYPE} {ip_addr} 内存信息解析失败")
         else:
             mem_level = grade_percent(mem_used_pct, self.MEM_WARN, self.MEM_CRIT)
-            self.add_result(mem_level,
-                            f"站点{server_name}{self.SERVICE_TYPE} {ip_addr} 内存{mem_used_pct}%（预警WARN:{self.MEM_WARN}/严重CRITICAL:{self.MEM_CRIT}%）")
+            mem_msg = (
+                f"站点{server_name}{self.SERVICE_TYPE} {ip_addr} "
+                f"内存{mem_used_pct}%（预警WARN:{self.MEM_WARN}/严重CRITICAL:{self.MEM_CRIT}%）"
+            )
+            self.add_result(mem_level, mem_msg)
 
         if disk_used_pct is None:
             self.add_result(Level.ERROR, f"站点{server_name}{self.SERVICE_TYPE} {ip_addr} 未找到根分区 / 磁盘信息")
         else:
             disk_level = grade_percent(disk_used_pct, self.DISK_WARN, self.DISK_CRIT)
-            message = f"站点{server_name}{self.SERVICE_TYPE} {ip_addr} 磁盘{disk_used_pct}%（预警WARN:{self.DISK_WARN}/严重CRITICAL:{self.DISK_CRIT}%）"
+            message = (
+                f"站点{server_name}{self.SERVICE_TYPE} {ip_addr} "
+                f"磁盘{disk_used_pct}%（预警WARN:{self.DISK_WARN}/严重CRITICAL:{self.DISK_CRIT}%）"
+            )
             if disk_level != Level.OK and raw_df_line:
                 message += f"；原行: {raw_df_line}"
             self.add_result(disk_level, message)

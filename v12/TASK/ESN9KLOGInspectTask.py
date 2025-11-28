@@ -33,6 +33,16 @@ LEVEL_ORDER_ES = ["CRITICAL", "ERROR", "WARN", "OK"]
 
 # 提取N9K日志消息中的最低严重级别：从日志消息中解析所有严重级别并返回最低值
 def _esn9k_min_sev(MSG: str) -> Optional[int]:
+    """提取N9K日志消息中的最低严重级别
+    
+
+    Args:
+        MSG: 日志消息
+        
+
+    Returns:
+        Optional[int]: 最低严重级别，如果未找到则返回None
+    """
     if not MSG:
         return None
     VALS = []
@@ -46,6 +56,16 @@ def _esn9k_min_sev(MSG: str) -> Optional[int]:
 # ES N9K 异常日志巡检（实现匹配忽略告警）
 # 将N9K严重级别转换为系统级别：根据严重级别数值映射到系统告警级别
 def _esn9k_sev_to_level(MIN_SEV: Optional[int]) -> str:
+    """将N9K严重级别转换为系统级别
+    
+
+    Args:
+        MIN_SEV: 最低严重级别数值
+        
+
+    Returns:
+        str: 系统告警级别（CRITICAL/ERROR/WARN/OK）
+    """
     if MIN_SEV is None or MIN_SEV >= 5:
         return "OK"
     if MIN_SEV <= 2:
@@ -58,11 +78,31 @@ def _esn9k_sev_to_level(MIN_SEV: Optional[int]) -> str:
 
 # 比较两个告警级别的严重程度：返回更严重的告警级别
 def _esn9k_worse(A: str, B: str) -> str:
+    """比较两个告警级别的严重程度
+    
+
+    Args:
+        A: 告警级别1
+        B: 告警级别2
+        
+
+    Returns:
+        str: 更严重的告警级别
+    """
     ORDER = {LEVEL: INDEX for INDEX, LEVEL in enumerate(LEVEL_ORDER_ES)}
     return A if ORDER.get(A, 99) < ORDER.get(B, 99) else B
 
 # 加载忽略告警配置：从YAML文件读取需要忽略的告警规则
 def _esn9k_load_ignores() -> dict:
+    """加载忽略告警配置
+    
+
+    从YAML文件读取需要忽略的告警规则
+    
+
+    Returns:
+        dict: 包含contains和regex规则的字典
+    """
     try:
         # 从配置文件读取ignore_alarm_file（必须配置）
         require_keys(CONFIG, ["ESN9KLOGInspectTask"], "root")
@@ -95,6 +135,16 @@ _ESN9K_IGNORES = _esn9k_load_ignores()
 
 # 检查告警消息是否应该被忽略：根据忽略规则判断告警是否应该被过滤
 def _esn9k_should_ignore(MSG: str) -> bool:
+    """检查告警消息是否应该被忽略
+    
+
+    Args:
+        MSG: 告警消息
+        
+
+    Returns:
+        bool: 如果应该被忽略则返回True
+    """
     if not MSG:
         return False
     try:
@@ -111,6 +161,20 @@ def _esn9k_should_ignore(MSG: str) -> bool:
 
 # 选择可用的Kibana实例：从配置的Kibana实例中选择一个可用的
 def _esn9k_pick_kibana(SESSION: requests.Session) -> tuple[str, str]:
+    """选择可用的Kibana实例
+    
+
+    Args:
+        SESSION: requests会话对象
+        
+
+    Returns:
+        tuple[str, str]: (Kibana名称, Kibana基础URL)元组
+        
+
+    Raises:
+        RuntimeError: 如果没有可用的Kibana实例
+    """
     # 从配置文件读取ESN9KLOGInspectTask的配置（必须配置）
     require_keys(CONFIG, ["ESN9KLOGInspectTask"], "root")
     require_keys(CONFIG["ESN9KLOGInspectTask"], ["kibana_bases"], "ESN9KLOGInspectTask")
@@ -129,6 +193,17 @@ def _esn9k_pick_kibana(SESSION: requests.Session) -> tuple[str, str]:
 
 # 获取Kibana版本信息：通过API获取Kibana实例的版本号
 def _esn9k_kbn_version(SESSION: requests.Session, BASE: str) -> str:
+    """获取Kibana版本信息
+    
+
+    Args:
+        SESSION: requests会话对象
+        BASE: Kibana基础URL
+        
+
+    Returns:
+        str: Kibana版本号
+    """
     URL = f"{BASE}/api/status"
     HEADERS = {"kbn-xsrf": "true"}
     RESPONSE = SESSION.get(URL, headers=HEADERS, timeout=30)
@@ -143,7 +218,25 @@ def _esn9k_kbn_version(SESSION: requests.Session, BASE: str) -> str:
     return RESPONSE.headers.get("kbn-version") or RESPONSE.headers.get("x-kibana-version") or "7.17.0"
 
 # 通过Kibana代理执行ES查询：使用Kibana Console代理功能执行Elasticsearch查询
-def _esn9k_kbn_proxy(SESSION: requests.Session, BASE: str, KBN_VERSION: str, METHOD: str, PATH: str, BODY: Optional[dict]):
+def _esn9k_kbn_proxy(
+    SESSION: requests.Session, BASE: str, KBN_VERSION: str,
+    METHOD: str, PATH: str, BODY: Optional[dict]
+):
+    """通过Kibana代理执行ES查询
+    
+
+    Args:
+        SESSION: requests会话对象
+        BASE: Kibana基础URL
+        KBN_VERSION: Kibana版本
+        METHOD: HTTP方法
+        PATH: ES查询路径
+        BODY: 请求体
+        
+
+    Returns:
+        dict: ES查询结果
+    """
     from urllib.parse import quote as _quote
     Q_PATH = _quote(PATH, safe="")
     URL = f"{BASE}/api/console/proxy?method={METHOD}&path={Q_PATH}"
@@ -155,10 +248,27 @@ def _esn9k_kbn_proxy(SESSION: requests.Session, BASE: str, KBN_VERSION: str, MET
 
 # 执行ES N9K日志巡检探测：查询Elasticsearch获取N9K设备日志并分析告警
 def run_esn9k_probe(TARGET: Optional[Tuple[str, str]] = None) -> dict:
+    """执行ES N9K日志巡检探测
+    
+
+    查询Elasticsearch获取N9K设备日志并分析告警级别
+    
+
+    Args:
+        TARGET: 可选的(Kibana名称, Kibana基础URL)元组
+        
+
+    Returns:
+        dict: 巡检结果，包含扫描数量、匹配数量、最严重级别和样例
+    """
     global _ESN9K_IGNORES
     _ESN9K_IGNORES = _esn9k_load_ignores()
     require_keys(CONFIG, ["ESN9KLOGInspectTask"], "root")
-    require_keys(CONFIG["ESN9KLOGInspectTask"], ["index_pattern", "time_gte", "time_lt"], "ESN9KLOGInspectTask")
+    require_keys(
+        CONFIG["ESN9KLOGInspectTask"],
+        ["index_pattern", "time_gte", "time_lt"],
+        "ESN9KLOGInspectTask"
+    )
     TASK_CONFIG = CONFIG["ESN9KLOGInspectTask"]
     INDEX_PATTERN: str = TASK_CONFIG["index_pattern"]
     TIME_FIELD: str = TASK_CONFIG.get("time_field", "@timestamp")
@@ -236,13 +346,25 @@ def run_esn9k_probe(TARGET: Optional[Tuple[str, str]] = None) -> dict:
 # ESLogN9KInspectTask
 # ES N9K日志巡检任务类：通过Elasticsearch查询N9K设备日志并分析告警级别
 class ESN9KLOGInspectTask(BaseTask):
+    """ES N9K日志巡检任务
     
+
+    通过Elasticsearch查询N9K设备日志并分析告警级别
+    """
+    
+
     # 初始化ES N9K日志巡检任务：设置任务名称
     def __init__(self):
         super().__init__("ES服务器CS-N9K异常日志巡检")
 
     # 返回要巡检的Kibana实例列表
     def items(self):
+        """返回要巡检的Kibana实例列表
+        
+
+        Returns:
+            list: (Kibana名称, Kibana基础URL)元组列表
+        """
         require_keys(CONFIG, ["ESN9KLOGInspectTask"], "root")
         require_keys(CONFIG["ESN9KLOGInspectTask"], ["kibana_bases"], "ESN9KLOGInspectTask")
         BASES = CONFIG["ESN9KLOGInspectTask"]["kibana_bases"]
@@ -250,6 +372,15 @@ class ESN9KLOGInspectTask(BaseTask):
 
     # 执行单个Kibana实例的N9K日志巡检：查询日志并分析告警级别
     def run_single(self, ITEM):
+        """执行单个Kibana实例的N9K日志巡检
+        
+
+        查询日志并分析告警级别
+        
+
+        Args:
+            ITEM: (Kibana名称, Kibana基础URL)元组
+        """
         try:
             NAME, BASE = ITEM
             # 从设备名中提取站点名（如HX00-ES -> HX00）

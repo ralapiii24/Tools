@@ -24,6 +24,16 @@ from .TaskBase import Level, CONFIG, ssh_exec, require_keys
 
 # 字节单位转换函数：将字符串格式的存储大小转换为字节数
 def to_bytes(SIZE_STR: str) -> int:
+    """将字符串格式的存储大小转换为字节数
+    
+
+    Args:
+        SIZE_STR: 大小字符串（如"1GB", "500MB"等）
+        
+
+    Returns:
+        int: 字节数，如果转换失败则返回-1
+    """
     if not SIZE_STR:
         return -1
     NORMALIZED = SIZE_STR.strip().lower()
@@ -42,6 +52,12 @@ def to_bytes(SIZE_STR: str) -> int:
 
 # FLOW服务器巡检任务类：专门用于FLOW服务器的巡检，包括容器、端口和ES索引检查
 class ESFlowTask(BaseLinuxServerTask):
+    """FLOW服务器巡检任务
+    
+
+    专门用于FLOW服务器的巡检，包括容器、端口和ES索引检查
+    继承自LinuxServerBase，包含所有通用检查功能
+    """
     # 初始化FLOW服务器巡检任务：设置内存阈值和专项检查配置
     def __init__(self):
         # 验证ESFlowTask专用配置
@@ -49,19 +65,35 @@ class ESFlowTask(BaseLinuxServerTask):
         require_keys(CONFIG["ESServer"], ["thresholds", "ESFlowTask_CustomParameters"], "ESServer")
         require_keys(CONFIG["ESServer"]["thresholds"], ["mem_percent"], "ESServer.thresholds")
         require_keys(CONFIG["ESServer"]["thresholds"]["mem_percent"], ["ESFlowTask"], "ESServer.thresholds.mem_percent")
-        require_keys(CONFIG["ESServer"]["ESFlowTask_CustomParameters"], 
-                    ["require_ports", "require_containers", "index_prefix", "index_size_limit_bytes", "segment_max_non_recent"], 
-                    "ESServer.ESFlowTask_CustomParameters")
+        require_keys(
+            CONFIG["ESServer"]["ESFlowTask_CustomParameters"],
+            [
+                "require_ports", "require_containers", "index_prefix",
+                "index_size_limit_bytes", "segment_max_non_recent"
+            ],
+            "ESServer.ESFlowTask_CustomParameters"
+        )
         
+
         # 从配置文件读取ESFlowTask的内存阈值配置
         MEM_THRESHOLDS = CONFIG["ESServer"]["thresholds"]["mem_percent"]["ESFlowTask"]
         super().__init__("FLOW服务器巡检", "ESFlowTask", 
+
                         MEM_THRESHOLDS["warn"], MEM_THRESHOLDS["crit"])
         # 从配置文件读取ESFlowTask的自定义参数（必须配置）
         self.FC = CONFIG["ESServer"]["ESFlowTask_CustomParameters"]
 
     # 执行单个FLOW服务器的专项巡检：检查端口、容器、ES索引和段信息
     def run_single(self, ITEM: Tuple[str, str]) -> None:
+        """执行单个FLOW服务器的专项巡检
+        
+
+        检查端口、容器、ES索引和段信息
+        
+
+        Args:
+            ITEM: (服务器名, IP地址)元组
+        """
         super().run_single(ITEM)
 
         SERVER_NAME, IP_ADDR = ITEM
@@ -69,11 +101,14 @@ class ESFlowTask(BaseLinuxServerTask):
             SSH = self._ssh(IP_ADDR, self.PORT, self.USERNAME, self.PASSWORD)
 
             _, NETSTAT_STDOUT, _ = ssh_exec(SSH, "netstat -tulnp", label="ports")
-            DOCKER_EC, DOCKER_STDOUT, DOCKER_STDERR = ssh_exec(SSH, 'docker ps --format "{{.Names}} {{.Status}}"',
-                                                               label="docker ps")
-            _, INDICES_STDOUT, _ = ssh_exec(SSH, "curl -s 'http://localhost:9200/_cat/indices?v'", label="es indices")
-            _, SEGMENTS_STDOUT, _ = ssh_exec(SSH, "curl -s 'http://localhost:9200/_cat/segments?v'",
-                                             label="es segments")
+            DOCKER_CMD = 'docker ps --format "{{.Names}} {{.Status}}"'
+            DOCKER_EC, DOCKER_STDOUT, DOCKER_STDERR = ssh_exec(
+                SSH, DOCKER_CMD, label="docker ps"
+            )
+            INDICES_CMD = "curl -s 'http://localhost:9200/_cat/indices?v'"
+            _, INDICES_STDOUT, _ = ssh_exec(SSH, INDICES_CMD, label="es indices")
+            SEGMENTS_CMD = "curl -s 'http://localhost:9200/_cat/segments?v'"
+            _, SEGMENTS_STDOUT, _ = ssh_exec(SSH, SEGMENTS_CMD, label="es segments")
         except Exception as ERROR:
             self.add_result(Level.ERROR, f"站点{SERVER_NAME}流量分析系统FLOW {IP_ADDR} FLOW专项巡检失败：{ERROR}")
             return
@@ -102,7 +137,11 @@ class ESFlowTask(BaseLinuxServerTask):
                     RUNNING.add(NAME)
             for CONTAINER_NAME in self.FC["require_containers"]:
                 if CONTAINER_NAME not in RUNNING:
-                    self.add_result(Level.CRIT, f"站点{SERVER_NAME}流量分析系统FLOW {IP_ADDR} 容器 {CONTAINER_NAME} 未运行(或STATUS非Up)")
+                    self.add_result(
+                        Level.CRIT,
+                        f"站点{SERVER_NAME}流量分析系统FLOW {IP_ADDR} "
+                        f"容器 {CONTAINER_NAME} 未运行(或STATUS非Up)"
+                    )
         else:
             # docker ps 执行失败：检查关键端口是否被占用，若有则视为通过，否则失败
             FALLBACK_PORTS = [5601, 9600, 9300, 9200, 4739, 2055, 6343]
@@ -114,8 +153,11 @@ class ESFlowTask(BaseLinuxServerTask):
                         FILTERED_LINES.append(LINE.rstrip())
                         break
             if FILTERED_LINES:
-                self.add_result(Level.OK,
-                                f"站点{SERVER_NAME}流量分析系统FLOW {IP_ADDR} docker ps 失败，但端口命中如下：\n" + "\n".join(FILTERED_LINES))
+                msg = (
+                    f"站点{SERVER_NAME}流量分析系统FLOW {IP_ADDR} "
+                    f"docker ps 失败，但端口命中如下：\n" + "\n".join(FILTERED_LINES)
+                )
+                self.add_result(Level.OK, msg)
             else:
                 self.add_result(Level.ERROR, f"站点{SERVER_NAME}流量分析系统FLOW {IP_ADDR} docker ps 失败且关键端口未占用")
         INDEX_PREFIX = self.FC["index_prefix"]
@@ -141,7 +183,11 @@ class ESFlowTask(BaseLinuxServerTask):
         if len(DATE_SET) > 31:
             self.add_result(Level.WARN, f"站点{SERVER_NAME}流量分析系统FLOW {IP_ADDR} 索引日期数量 {len(DATE_SET)} 超过 31")
         if OVERSIZE_LIST:
-            self.add_result(Level.WARN, f"站点{SERVER_NAME}流量分析系统FLOW {IP_ADDR} 索引大小超过1G: " + "；".join(OVERSIZE_LIST))
+            msg = (
+                f"站点{SERVER_NAME}流量分析系统FLOW {IP_ADDR} "
+                f"索引大小超过1G: " + "；".join(OVERSIZE_LIST)
+            )
+            self.add_result(Level.WARN, msg)
 
         SEGMENT_COUNTER: dict[str, int] = {}
         SEGMENT_DATES = set()
@@ -192,5 +238,8 @@ class ESFlowTask(BaseLinuxServerTask):
                 OVERS_SEGMENT.append(f"{INDEX_NAME} 行数 {COUNT}")
 
         if OVERS_SEGMENT:
-            self.add_result(Level.WARN,
-                            f"站点{SERVER_NAME}流量分析系统FLOW {IP_ADDR} segments 行数超过{LIMIT}: " + "；".join(OVERS_SEGMENT))
+            msg = (
+                f"站点{SERVER_NAME}流量分析系统FLOW {IP_ADDR} "
+                f"segments 行数超过{LIMIT}: " + "；".join(OVERS_SEGMENT)
+            )
+            self.add_result(Level.WARN, msg)

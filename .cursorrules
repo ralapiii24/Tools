@@ -1,0 +1,167 @@
+# Cursor 代码生成规范配置
+# 基于 PEP 8 和 Pyright 标准，与 CodeStyleChecker.py 保持一致
+
+## Python 代码规范
+
+### 命名规范
+- **文件名**：使用驼峰命名（CamelCase），首字母大写，如 `Main.py`, `TaskBase.py`
+  - 例外：`__init__.py`, `__main__.py`, `Main.py` 以及 Patch 目录下的文件
+- **类名**：使用驼峰命名（PascalCase），首字母大写，如 `BaseTask`, `CodeStyleChecker`
+- **函数名**：使用小写下划线（snake_case），如 `check_all`, `run_single`
+- **私有函数/方法**：单下划线 + 小写下划线，如 `_check_file_content`, `_process_data`
+- **变量名**：
+  - 局部变量：小写下划线（snake_case），如 `file_path`, `line_count`
+  - 模块级常量：全大写 + 下划线，如 `MAX_LENGTH`, `DEFAULT_CONFIG`
+  - 类属性：小写下划线或全大写常量
+- **特殊方法**：双下划线开头和结尾，如 `__init__`, `__str__`
+
+### 导入规范
+- **导入顺序**（必须按此顺序，组之间用空行分隔）：
+  1. 标准库导入（os, sys, re, json, time, datetime, pathlib, typing, collections 等）
+  2. 第三方库导入（yaml, tqdm, paramiko, openpyxl, playwright 等）
+  3. 本地应用导入（v12 目录下的模块）
+- **导入分组之间必须有空行**（PEP 8 标准）
+- 示例：
+```python
+import os
+import re
+from pathlib import Path
+from typing import List, Dict
+
+import yaml
+from tqdm import tqdm
+
+from v12.TASK.TaskBase import BaseTask
+```
+
+### 代码格式
+- **行长度**：
+  - 建议不超过 99 字符（PEP 8 推荐）
+  - 最大不超过 120 字符（硬限制）
+  - 超过时使用括号换行，不要使用反斜杠
+- **缩进**：使用 4 个空格，不使用 Tab
+- **空行**：
+  - 函数和类定义前后各 2 个空行
+  - 类内方法之间 1 个空行
+  - 最多连续 2 个空行
+- **尾随空格**：行尾不应有空格或 Tab
+- **文件末尾**：必须有换行符
+
+### 文档字符串
+- **公共类**：必须有 docstring（三引号字符串）
+- **公共函数**：必须有 docstring（三引号字符串）
+- **私有函数**（单下划线开头）：可以没有 docstring，但建议有注释
+- 格式：使用三引号 `"""..."""`，不是单行注释 `#`
+
+### 异常处理
+- **避免 bare except**：必须指定具体异常类型
+- ✅ 正确：`except ValueError:`, `except (ValueError, TypeError):`, `except Exception:`
+- ❌ 错误：`except:`
+
+### 注释规范
+- **文件顶部**：必须有模块说明注释（使用 `#`）
+- **函数前**：公共函数前应有注释说明功能
+- **TODO/FIXME**：使用 `# TODO: ...` 或 `# FIXME: ...` 标记待办事项
+
+### 代码示例
+
+#### 正确的类定义
+```python
+class BaseTask:
+    """任务基类
+    
+    提供所有任务的基础功能，包括SSH连接、结果记录等。
+    """
+    
+    def __init__(self, config: Dict[str, Any]):
+        """初始化任务
+        
+        Args:
+            config: 配置字典
+        """
+        self.config = config
+    
+    def run(self) -> None:
+        """运行任务"""
+        pass
+    
+    def _process_data(self, data: str) -> str:
+        """处理数据（私有方法）"""
+        return data.upper()
+```
+
+#### 正确的导入
+```python
+import os
+import re
+from pathlib import Path
+from typing import List, Dict, Optional
+
+import yaml
+from tqdm import tqdm
+
+from v12.TASK.TaskBase import BaseTask
+```
+
+#### 正确的长行处理
+```python
+# ✅ 使用括号换行
+result = self._process_data(
+    input_data, 
+    options={'key': 'value'},
+    timeout=30
+)
+
+# ✅ 函数定义换行
+def process_file(
+    self, file_path: str, output_path: str,
+    options: Optional[Dict] = None
+) -> bool:
+    pass
+
+# ✅ 字符串换行
+message = (
+    f"处理完成：发现{count}个匹配规则，"
+    f"标记{marked}个单元格"
+)
+```
+
+### 禁止的做法
+- ❌ 使用 Tab 缩进
+- ❌ 行长度超过 120 字符
+- ❌ 使用 bare except（`except:`）
+- ❌ 导入顺序混乱
+- ❌ 导入分组之间没有空行
+- ❌ 公共函数/类没有 docstring
+- ❌ 文件末尾没有换行符
+- ❌ 行尾有尾随空格
+
+### 特殊约定
+- **目录命名**：全大写（如 `TASK`, `PATCH`），允许数字和下划线
+- **Patch 文件**：Patch 目录下的文件命名可以例外
+- **Main.py**：主入口文件可以例外
+
+## 生成代码时的要求
+
+1. **始终遵循上述所有规范**
+2. **生成新文件时**：
+   - 文件顶部必须有模块说明注释
+   - 使用正确的导入顺序和分组
+   - 类名使用 PascalCase
+   - 函数名使用 snake_case
+3. **生成新函数时**：
+   - 公共函数必须有 docstring
+   - 使用类型提示（Type Hints）
+   - 参数和返回值都要有类型注解
+4. **生成长行时**：
+   - 超过 99 字符时自动换行
+   - 使用括号而不是反斜杠
+   - 保持可读性
+5. **生成异常处理时**：
+   - 必须指定具体异常类型
+   - 不要使用 bare except
+
+## 与 CodeStyleChecker.py 的关系
+
+这些规则与项目中的 `CodeStyleChecker.py` 工具完全一致。生成的代码应该能够通过该工具的检查。
+

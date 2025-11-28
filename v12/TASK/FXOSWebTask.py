@@ -15,19 +15,30 @@ from typing import Dict
 from playwright.sync_api import sync_playwright
 
 # 导入本地应用
-from .TaskBase import BaseTask, Level, CONFIG, DEFAULT_PAGE_GOTO_TIMEOUT, DEFAULT_SELECTOR_TIMEOUT, BLOCK_RES_TYPES, require_keys, decrypt_password
+from .TaskBase import (
+    BaseTask, Level, CONFIG, DEFAULT_PAGE_GOTO_TIMEOUT,
+    DEFAULT_SELECTOR_TIMEOUT, BLOCK_RES_TYPES, require_keys, decrypt_password
+)
 
 # FXOS WEB巡检任务类：通过浏览器自动化技术对FXOS设备进行WEB界面巡检
 class FXOSWebTask(BaseTask):
+    """FXOS WEB巡检任务
     
+
+    通过浏览器自动化技术对FXOS设备进行WEB界面巡检
+    """
+    
+
     # 初始化FXOS WEB巡检任务：设置登录凭据、设备URL列表和自动化参数
     def __init__(self):
         super().__init__("FXOS WEB巡检")
         
+
         # 验证FXOSWebTask专用配置
         require_keys(CONFIG, ["FXOSWebTask"], "root")
         require_keys(CONFIG["FXOSWebTask"], ["username", "password", "devices"], "FXOSWebTask")
         
+
         FXOS_CFG = CONFIG["FXOSWebTask"]
         self.USERNAME = FXOS_CFG["username"]
         self.PASSWORD = decrypt_password(FXOS_CFG["password"])
@@ -42,21 +53,42 @@ class FXOSWebTask(BaseTask):
 
     # 返回要巡检的FXOS设备URL列表
     def items(self):
+        """返回要巡检的FXOS设备URL列表
+        
+
+        Returns:
+            list: (设备名, URL)元组列表
+        """
         return list(self.DEVICE_URLS.items())
 
     # 自动处理页面继续按钮和对话框：通过键盘操作和元素点击自动跳过确认步骤
-    def _NUDGE_CONTINUE(self, PAGE) -> None:
+    def _nudge_continue(self, PAGE) -> None:
+        """自动处理页面继续按钮和对话框
+        
+
+        通过键盘操作和元素点击自动跳过确认步骤
+        
+
+        Args:
+            PAGE: Playwright页面对象
+        """
         if not self.AUTO_PRESS_ENTER:
             return
         try:
             # 处理页面对话框：自动接受弹出的对话框
-            def _ON_DIALOG(DIALOG):
+            def _on_dialog(DIALOG):
+                """处理页面对话框
+                
+
+                Args:
+                    DIALOG: 对话框对象
+                """
                 try:
                     DIALOG.accept()
                 except Exception:
                     pass
 
-            PAGE.once("dialog", _ON_DIALOG)
+            PAGE.once("dialog", _on_dialog)
         except Exception:
             pass
 
@@ -73,12 +105,17 @@ class FXOSWebTask(BaseTask):
                 pass
             PAGE.wait_for_timeout(self.ENTER_INTERVAL_MS)
 
-            for SELECTOR in (
-                    "text=Continue", "text=Proceed", "text=OK", "text=Confirm",
-                    "text=继续", "text=确认", "text=确定",
-                    "xpath=//button[contains(.,'Continue') or contains(.,'Proceed') or contains(.,'OK') or contains(.,'确认') or contains(.,'继续') or contains(.,'确定')]",
-                    "xpath=//a[contains(.,'Continue') or contains(.,'Proceed') or contains(.,'OK') or contains(.,'确认') or contains(.,'继续') or contains(.,'确定')]",
-            ):
+            SELECTORS = (
+                "text=Continue", "text=Proceed", "text=OK", "text=Confirm",
+                "text=继续", "text=确认", "text=确定",
+                "xpath=//button[contains(.,'Continue') or contains(.,'Proceed') "
+                "or contains(.,'OK') or contains(.,'确认') or contains(.,'继续') "
+                "or contains(.,'确定')]",
+                "xpath=//a[contains(.,'Continue') or contains(.,'Proceed') "
+                "or contains(.,'OK') or contains(.,'确认') or contains(.,'继续') "
+                "or contains(.,'确定')]",
+            )
+            for SELECTOR in SELECTORS:
                 try:
                     ELEMENT = PAGE.query_selector(SELECTOR)
                     if ELEMENT:
@@ -89,6 +126,15 @@ class FXOSWebTask(BaseTask):
 
     # 执行单个FXOS设备的WEB巡检：自动登录并验证页面加载
     def run_single(self, item):
+        """执行单个FXOS设备的WEB巡检
+        
+
+        自动登录并验证页面加载
+        
+
+        Args:
+            item: (设备名, URL)元组
+        """
         DEVICE_NAME, URL = item
         # 从设备名中提取站点名（如HX00-FXOS-01 -> HX00）
         SITE_NAME = DEVICE_NAME.split('-')[0] if '-' in DEVICE_NAME else DEVICE_NAME
@@ -97,8 +143,12 @@ class FXOSWebTask(BaseTask):
             CONTEXT = BROWSER.new_context(ignore_https_errors=True)
             # ↓↓↓ 新增：统一超时 & 拦截图片/媒体/字体请求，降低负载
             CONTEXT.set_default_timeout(DEFAULT_PAGE_GOTO_TIMEOUT)
-            CONTEXT.route("**/*", lambda
-                ROUTE: ROUTE.abort() if ROUTE.request.resource_type in BLOCK_RES_TYPES else ROUTE.continue_())
+            def route_handler(ROUTE):
+                if ROUTE.request.resource_type in BLOCK_RES_TYPES:
+                    ROUTE.abort()
+                else:
+                    ROUTE.continue_()
+            CONTEXT.route("**/*", route_handler)
 
             PAGE = CONTEXT.new_page()
             try:
@@ -109,13 +159,13 @@ class FXOSWebTask(BaseTask):
                 except Exception:
                     pass
 
-                self._NUDGE_CONTINUE(PAGE)
+                self._nudge_continue(PAGE)
 
                 PAGE.fill('xpath=/html/body/center/div/form/div[3]/input[1]', self.USERNAME)
                 PAGE.fill('xpath=/html/body/center/div/form/div[3]/input[2]', self.PASSWORD)
                 PAGE.click('xpath=/html/body/center/div/form/a[2]')
 
-                self._NUDGE_CONTINUE(PAGE)
+                self._nudge_continue(PAGE)
 
                 PAGE.wait_for_selector(f'xpath={self.EXPECTED_XPATH}', timeout=DEFAULT_SELECTOR_TIMEOUT)
                 self.add_result(Level.OK, f"站点{SITE_NAME}防火墙{DEVICE_NAME}网页登录成功")

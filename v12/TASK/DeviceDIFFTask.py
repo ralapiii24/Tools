@@ -27,6 +27,8 @@
 import datetime as dt
 import os
 import re
+
+# 导入第三方库
 import yaml
 from difflib import unified_diff
 from typing import List, Optional, Tuple
@@ -40,7 +42,13 @@ from .TaskBase import BaseTask, Level
 
 # 关键设备差异对比任务类：对比设备配置的历史差异并生成Excel报告
 class DeviceDIFFTask(BaseTask):
+    """关键设备差异对比任务
     
+
+    自动选日期做DIFF，对比不同时期的设备配置变化
+    """
+    
+
     # 初始化关键设备差异对比任务：设置任务名称和运行期缓存
     def __init__(self):
         super().__init__("关键设备DIFF")
@@ -64,34 +72,55 @@ class DeviceDIFFTask(BaseTask):
         self._SUM_REMOVED = 0
         self._SUM_CHANGED = 0
         
+
         # 加载忽略规则
         self._IGNORE_RULES = self._load_ignore_rules()
 
     # 计算对比计划并返回Sheet列表：根据日期逻辑确定对比文件并返回Sheet名称列表
     def items(self):
+        """计算对比计划并返回Sheet列表
+        
+
+        根据日期逻辑确定对比文件并返回Sheet名称列表
+        
+
+        Returns:
+            list: Sheet名称列表
+        """
         # 返回 Sheet 列表作为 items；items() 不做重活，仅计算计划和 sheet 名
         # 统一目录创建逻辑：在items中创建输出目录
         # 创建输出目录（如果目录已存在则不报错）
         os.makedirs(self.OUTPUT_DIR, exist_ok=True)
         
+
         TODAY_DT = dt.datetime.now()
         TODAY = TODAY_DT.date()
         TODAY_STR = TODAY_DT.strftime("%Y%m%d")
 
         # 格式化路径：根据日期格式化文件路径
-        def _FP(YMD: str) -> str:
+        def _format_path(YMD: str) -> str:
+            """格式化文件路径
+            
+
+            Args:
+                YMD: 日期字符串（YYYYMMDD格式）
+                
+
+            Returns:
+                str: 文件路径
+            """
             return os.path.join(self.INPUT_DIR, f"{YMD}-{self.FILENAME_PREFIX}.xlsx")
 
         PLANS = []  # [(BEFORE_YMD, AFTER_YMD, OUT_SUFFIX)]
 
         # 日：今天 vs 昨天（最多往前找3天，找到最新的文件即可）
         # 先检查今天文件是否存在
-        if os.path.isfile(_FP(TODAY_STR)):
+        if os.path.isfile(_format_path(TODAY_STR)):
             # 从昨天开始往前找，最多找3天
             for DAYS_BACK in range(1, 4):  # 1天前、2天前、3天前
                 CHECK_DATE = TODAY - dt.timedelta(days=DAYS_BACK)
                 CHECK_DATE_STR = CHECK_DATE.strftime("%Y%m%d")
-                if os.path.isfile(_FP(CHECK_DATE_STR)):
+                if os.path.isfile(_format_path(CHECK_DATE_STR)):
                     PLANS.append((CHECK_DATE_STR, TODAY_STR, None))
                     break
 
@@ -102,11 +131,11 @@ class DeviceDIFFTask(BaseTask):
             WEEK_END = TODAY - dt.timedelta(days=1)
             FOUND = None
             while CUR <= WEEK_END:
-                if os.path.isfile(_FP(CUR.strftime("%Y%m%d"))):
+                if os.path.isfile(_format_path(CUR.strftime("%Y%m%d"))):
                     FOUND = CUR
                     break
                 CUR += dt.timedelta(days=1)
-            if FOUND and os.path.isfile(_FP(TODAY_STR)):
+            if FOUND and os.path.isfile(_format_path(TODAY_STR)):
                 PLANS.append((FOUND.strftime("%Y%m%d"), TODAY_STR, "周DIFF"))
 
         # 月：仅月末，从 1 号顺延至昨日找最早有文件
@@ -115,11 +144,11 @@ class DeviceDIFFTask(BaseTask):
             CUR = FIRST
             FOUND = None
             while CUR < TODAY:
-                if os.path.isfile(_FP(CUR.strftime("%Y%m%d"))):
+                if os.path.isfile(_format_path(CUR.strftime("%Y%m%d"))):
                     FOUND = CUR
                     break
                 CUR += dt.timedelta(days=1)
-            if FOUND and os.path.isfile(_FP(TODAY_STR)):
+            if FOUND and os.path.isfile(_format_path(TODAY_STR)):
                 PLANS.append((FOUND.strftime("%Y%m%d"), TODAY_STR, "月DIFF"))
 
         if not PLANS:
@@ -132,8 +161,8 @@ class DeviceDIFFTask(BaseTask):
         self._PRIMARY = (BEFORE_YMD, AFTER_YMD, OUT_SUFFIX)
 
         # 仅读取 sheet 名（很快）
-        START_FILE = _FP(BEFORE_YMD)
-        END_FILE = _FP(AFTER_YMD)
+        START_FILE = _format_path(BEFORE_YMD)
+        END_FILE = _format_path(AFTER_YMD)
         try:
             WB_A = load_workbook(START_FILE, read_only=True, data_only=True)
             WB_B = load_workbook(END_FILE, read_only=True, data_only=True)
@@ -164,8 +193,16 @@ class DeviceDIFFTask(BaseTask):
         return self._SITES  # 关键：外层进度条按 Sheet 数显示 1/N
 
     # 加载忽略规则：从YAML文件加载DIFF忽略规则
-    # 加载DIFF忽略规则
     def _load_ignore_rules(self):
+        """加载DIFF忽略规则
+        
+
+        从YAML文件加载DIFF忽略规则
+        
+
+        Returns:
+            dict: 忽略规则字典
+        """
         try:
             IGNORE_FILE = os.path.join("YAML", "Ignore_DIFF.yaml")
             if os.path.exists(IGNORE_FILE):
@@ -177,20 +214,32 @@ class DeviceDIFFTask(BaseTask):
             return {}
 
     # 检查行是否应该被忽略：根据忽略规则判断行是否应该被过滤
-    # 检查行是否应该被忽略
     def _should_ignore_line(self, line: str) -> bool:
+        """检查行是否应该被忽略
+        
+
+        Args:
+            line: 要检查的行
+            
+
+        Returns:
+            bool: 如果应该被忽略则返回True
+        """
         if not self._IGNORE_RULES or "diff_ignore" not in self._IGNORE_RULES:
             return False
         
+
         RULES = self._IGNORE_RULES["diff_ignore"]
         LINE_LOWER = line.lower()
         
+
         # 检查包含匹配
         if "message_contains" in RULES:
             for PATTERN in RULES["message_contains"]:
                 if PATTERN.lower() in LINE_LOWER:
                     return True
         
+
         # 检查正则表达式匹配
         if "message_regex" in RULES:
             for PATTERN in RULES["message_regex"]:
@@ -200,24 +249,52 @@ class DeviceDIFFTask(BaseTask):
                 except re.error:
                     continue
         
+
         return False
 
     # 过滤配置行：移除应该被忽略的行
-    # 过滤配置行，移除应该被忽略的行
     def _filter_config_lines(self, lines: list[str]) -> list[str]:
+        """过滤配置行
+        
+
+        移除应该被忽略的行
+        
+
+        Args:
+            lines: 配置行列表
+            
+
+        Returns:
+            list[str]: 过滤后的配置行列表
+        """
         if not self._IGNORE_RULES:
             return lines
         
+
         FILTERED_LINES = []
         for LINE in lines:
             if not self._should_ignore_line(LINE):
                 FILTERED_LINES.append(LINE)
         
+
         return FILTERED_LINES
 
     # 标准化设备名称：从列头中提取设备标识符
     @staticmethod
     def _normalize_device(header: str) -> Tuple[Optional[str], str]:
+        """标准化设备名称
+        
+
+        从列头中提取设备标识符
+        
+
+        Args:
+            header: 列头字符串
+            
+
+        Returns:
+            Tuple[Optional[str], str]: (设备标识符, 原始列头)
+        """
         if header is None:
             return None, ""
         HEADER_STR = str(header).strip()
@@ -233,8 +310,21 @@ class DeviceDIFFTask(BaseTask):
         return DEVICE_KEY, HEADER_STR
 
     # 读取Excel工作表数据：解析指定工作表并返回设备配置映射
-    # 只读取指定 sheet，返回 { device_key: {"label": <列头>, "lines": [...]}, ... }
     def _read_sheet_map(self, xlsx_path: str, sheet_name: str) -> dict[str, dict]:
+        """读取Excel工作表数据
+        
+
+        只读取指定sheet，返回设备配置映射
+        
+
+        Args:
+            xlsx_path: Excel文件路径
+            sheet_name: 工作表名称
+            
+
+        Returns:
+            dict: {device_key: {"label": <列头>, "lines": [...]}, ...}
+        """
         WORKBOOK = load_workbook(xlsx_path, read_only=True, data_only=True)
         if sheet_name not in WORKBOOK.sheetnames:
             return {}
@@ -271,8 +361,17 @@ class DeviceDIFFTask(BaseTask):
         return SHEET_MAP
 
     # 处理单个站点的差异对比：渲染指定Sheet并生成差异报告
-    # 渲染单个 Sheet；若是最后一个 Sheet，则保存主输出并顺带跑周/月计划
     def run_single(self, site):
+        """处理单个站点的差异对比
+        
+
+        渲染指定Sheet并生成差异报告
+        若是最后一个Sheet，则保存主输出并顺带跑周/月计划
+        
+
+        Args:
+            site: 站点名称
+        """
         if not self._PLANS or not self._SITES or site is None:
             self.add_result(Level.WARN, "DIFF 跳过：找不到可用的基础任务 Excel")
             return
@@ -298,6 +397,7 @@ class DeviceDIFFTask(BaseTask):
         WORKSHEET.append([f"起始：{self._START_YMD}", f"结束：{self._END_YMD}"])
         WORKSHEET.append(["变更类型", "设备Key", "起始列头", "结束列头", "说明/DIFF"])
         
+
         # 设置列宽
         WORKSHEET.column_dimensions['A'].width = 15  # 变更类型
         WORKSHEET.column_dimensions['B'].width = 28  # 设备Key
@@ -316,10 +416,12 @@ class DeviceDIFFTask(BaseTask):
             A_LINES = AMAP[DEV]["lines"]
             B_LINES = BMAP[DEV]["lines"]
             
+
             # 过滤忽略的行
             A_FILTERED = self._filter_config_lines(A_LINES)
             B_FILTERED = self._filter_config_lines(B_LINES)
             
+
             if A_FILTERED == B_FILTERED:
                 continue
             CHANGED.append(DEV)
@@ -358,7 +460,11 @@ class DeviceDIFFTask(BaseTask):
         self._SUM_CHANGED += len(CHANGED)
 
         # 输出每个站点的结果
-        self.add_result(Level.OK, f"站点 {site} 处理完成，新增DIFF设备={len(ADDED)}，删除DIFF设备={len(REMOVED)}，配置产生变更设备数量={len(CHANGED)}")
+        self.add_result(
+            Level.OK,
+            f"站点 {site} 处理完成，新增DIFF设备={len(ADDED)}，"
+            f"删除DIFF设备={len(REMOVED)}，配置产生变更设备数量={len(CHANGED)}"
+        )
 
         # 如果是最后一个 site：总计、保存，并顺带跑剩余计划（无额外进度条）
         if site == self._SITES[-1]:
@@ -420,6 +526,7 @@ class DeviceDIFFTask(BaseTask):
             WORKSHEET.append([f"起始：{start_date}", f"结束：{end_date}"])
             WORKSHEET.append(["变更类型", "设备Key", "起始列头", "结束列头", "说明/DIFF"])
             
+
             # 设置列宽
             WORKSHEET.column_dimensions['A'].width = 15  # 变更类型
             WORKSHEET.column_dimensions['B'].width = 28  # 设备Key
@@ -436,10 +543,12 @@ class DeviceDIFFTask(BaseTask):
                 A_LINES = AMAP[DEV]["lines"]
                 B_LINES = BMAP[DEV]["lines"]
                 
+
                 # 过滤忽略的行
                 A_FILTERED = self._filter_config_lines(A_LINES)
                 B_FILTERED = self._filter_config_lines(B_LINES)
                 
+
                 if A_FILTERED == B_FILTERED:
                     continue
                 CHANGED.append(DEV)
@@ -468,8 +577,10 @@ class DeviceDIFFTask(BaseTask):
                 DEL_CNT = sum(1 for LINE in DIFF_LINES if LINE.startswith("-") and not LINE.startswith("---"))
                 WORKSHEET.cell(row=BASE_ROW, column=4).value = f"-{DEL_CNT} / +{ADD_CNT}"
 
-            OVERVIEW.append([SITE, len(ASET), len(BSET), len(ADDED), len(REMOVED), len(CHANGED),
-                             "" if not CHANGED else "存在配置差异"])
+            OVERVIEW.append([
+                SITE, len(ASET), len(BSET), len(ADDED), len(REMOVED), len(CHANGED),
+                "" if not CHANGED else "存在配置差异"
+            ])
             TOTAL_ADDED += len(ADDED)
             TOTAL_REMOVED += len(REMOVED)
             TOTAL_CHANGED += len(CHANGED)

@@ -23,6 +23,11 @@ from .TaskBase import BaseTask, Level, extract_site_from_device, BAR_FORMAT, SHO
 
 # ASA防火墙主备对比检查任务类：对比ASA防火墙主备设备配置差异并生成Excel报告
 class ASACompareTask(BaseTask):
+    """ASA防火墙主备对比检查任务
+    
+
+    对比主备防火墙配置差异，生成带颜色编码的Excel报告
+    """
     # 初始化ASA防火墙主备对比任务：设置任务名称和数据结构
     def __init__(self):
         super().__init__("ASA防火墙主备对比检查")
@@ -36,6 +41,15 @@ class ASACompareTask(BaseTask):
 
     # 扫描LOG目录获取站点列表：按站点分组fw01-frp和fw02-frp配置文件
     def items(self):
+        """扫描LOG目录获取站点列表
+        
+
+        按站点分组fw01-frp和fw02-frp配置文件
+        
+
+        Returns:
+            list: 站点列表
+        """
         # 返回站点列表作为items，实现1/N进度显示
         self._TODAY = datetime.now().strftime("%Y%m%d")
         # V10新结构：从 LOG/OxidizedTask/OxidizedTaskBackup/ 读取
@@ -105,13 +119,31 @@ class ASACompareTask(BaseTask):
     # 从设备名中提取站点名：解析设备名称获取站点标识，如HX03-FW01-FRP2140-JPIDC -> HX03
     @staticmethod
     def _extract_site_from_device(device_name: str) -> str:
-        # 从设备名中提取站点名
+        """从设备名中提取站点名
+        
+
+        Args:
+            device_name: 设备名称
+            
+
+        Returns:
+            str: 站点名
+        """
         return extract_site_from_device(device_name)
 
     # 提取配置段：从ASA配置文件中提取interface Port-channel到failover的关键配置段，包含相关的object配置
     @staticmethod
     def _extract_config_section(file_path: str) -> list:
-        # 从配置文件中提取interface Port-channel到failover的配置段
+        """从配置文件中提取interface Port-channel到failover的配置段
+        
+
+        Args:
+            file_path: 配置文件路径
+            
+
+        Returns:
+            list: 配置行列表
+        """
         try:
             with open(file_path, 'r', encoding='utf-8', errors='ignore') as fileHandle:
                 lines = fileHandle.read().splitlines()
@@ -155,7 +187,9 @@ class ASACompareTask(BaseTask):
                 object_lines = [line]
                 next_line_index = lineIndex + 1
                 # 提取缩进的子配置行
-                while next_line_index < len(lines) and (lines[next_line_index].startswith(' ') or lines[next_line_index].startswith('\t')):
+                while (next_line_index < len(lines) and
+                       (lines[next_line_index].startswith(' ') or
+                        lines[next_line_index].startswith('\t'))):
                     object_lines.append(lines[next_line_index])
                     next_line_index += 1
                 # 添加空行分隔
@@ -170,13 +204,24 @@ class ASACompareTask(BaseTask):
 
     # 处理正常对比情况
     def _handle_normal_comparison(self, worksheet, site: str, fw01_content: list, fw02_content: list):
+        """处理正常对比情况
+        
+
+        Args:
+            worksheet: Excel工作表对象
+            site: 站点名称
+            fw01_content: FW01配置内容
+            fw02_content: FW02配置内容
+        """
         if not fw01_content and not fw02_content:
-            worksheet.append(["配置对比结果: 两台设备都无interface Port-channel到failover配置段", "配置对比结果: 两台设备都无interface Port-channel到failover配置段"])
+            msg = "配置对比结果: 两台设备都无interface Port-channel到failover配置段"
+            worksheet.append([msg, msg])
             self.add_result(Level.WARN, f"站点 {site} 两台设备都无interface Port-channel到failover配置段")
             return
         elif not fw01_content or not fw02_content:
             missing_device = "FW01-FRP" if not fw01_content else "FW02-FRP"
-            worksheet.append([f"配置对比结果: {missing_device} 无interface Port-channel到failover配置段", f"配置对比结果: {missing_device} 无interface Port-channel到failover配置段"])
+            msg = f"配置对比结果: {missing_device} 无interface Port-channel到failover配置段"
+            worksheet.append([msg, msg])
             self.add_result(Level.WARN, f"站点 {site} {missing_device} 无interface Port-channel到failover配置段")
             return
 
@@ -189,14 +234,31 @@ class ASACompareTask(BaseTask):
         else:
             fw01_only_count = len(comparison_result['fw01_only'])
             fw02_only_count = len(comparison_result['fw02_only'])
-            self.add_result(Level.WARN, f"站点{site}防火墙主备配置对比完成，存在差异，请手动对比检查(FW01独有:{fw01_only_count}, FW02独有:{fw02_only_count})")
+            self.add_result(
+                Level.WARN,
+                f"站点{site}防火墙主备配置对比完成，存在差异，"
+                f"请手动对比检查(FW01独有:{fw01_only_count}, FW02独有:{fw02_only_count})"
+            )
             self._fill_simple_comparison_content(worksheet, comparison_result, site)
             self._add_simple_statistics_and_result(worksheet, site, comparison_result)
 
     # 简单对比方法：使用SequenceMatcher进行配置差异对比，只显示真正的差异
     @staticmethod
     def _simple_comparison(fw01_content: list, fw02_content: list) -> dict:
-        # 优化的对比方法，只显示真正的差异
+        """简单对比方法
+        
+
+        优化的对比方法，只显示真正的差异
+        
+
+        Args:
+            fw01_content: FW01配置内容
+            fw02_content: FW02配置内容
+            
+
+        Returns:
+            dict: 对比结果字典
+        """
         from difflib import SequenceMatcher
 
         # 使用SequenceMatcher进行对比
@@ -260,7 +322,11 @@ class ASACompareTask(BaseTask):
                     meaningful_different_lines.append(diff)
 
         # 检查是否有真正的差异
-        has_differences = len(meaningful_fw01_only) > 0 or len(meaningful_fw02_only) > 0 or len(meaningful_different_lines) > 0
+        has_differences = (
+            len(meaningful_fw01_only) > 0 or
+            len(meaningful_fw02_only) > 0 or
+            len(meaningful_different_lines) > 0
+        )
 
         return {
             'has_differences': has_differences,
@@ -381,6 +447,14 @@ class ASACompareTask(BaseTask):
 
     # 添加简化的统计信息和结果
     def _add_simple_statistics_and_result(self, worksheet, site: str, comparison_result: dict):
+        """添加简化的统计信息和结果
+        
+
+        Args:
+            worksheet: Excel工作表对象
+            site: 站点名称
+            comparison_result: 对比结果字典
+        """
         fw01_only = comparison_result['fw01_only']
         fw02_only = comparison_result['fw02_only']
         different_lines = comparison_result['different_lines']
@@ -397,8 +471,16 @@ class ASACompareTask(BaseTask):
         # 统计信息已在上面输出，这里不再重复
 
     # 处理单个站点的ASA防火墙主备对比：读取配置并进行差异分析
-    # 处理单个站点的ASA防火墙主备对比
     def run_single(self, site: str):
+        """处理单个站点的ASA防火墙主备对比
+        
+
+        读取配置并进行差异分析
+        
+
+        Args:
+            site: 站点名称
+        """
         if site not in self._SITES_DATA:
             self.add_result(Level.ERROR, f"站点 {site} 数据不存在")
             return
@@ -436,11 +518,17 @@ class ASACompareTask(BaseTask):
 
         # 检查是否找到配置段
         if not fw01_content and not fw02_content:
-            self.add_result(Level.ERROR, f"站点 {site} 两台设备都未找到interface Port-channel到failover的配置段")
+            self.add_result(
+                Level.ERROR,
+                f"站点 {site} 两台设备都未找到interface Port-channel到failover的配置段"
+            )
             # 即使没有配置段也要创建Sheet显示错误信息
         elif not fw01_content or not fw02_content:
             missing_device = "FW01-FRP" if not fw01_content else "FW02-FRP"
-            self.add_result(Level.WARN, f"站点 {site} {missing_device} 未找到interface Port-channel到failover的配置段")
+            self.add_result(
+                Level.WARN,
+                f"站点 {site} {missing_device} 未找到interface Port-channel到failover的配置段"
+            )
 
         # 创建Excel Sheet并添加标题信息
         worksheet = self._WB.create_sheet(title=site)
@@ -456,11 +544,13 @@ class ASACompareTask(BaseTask):
         # 处理正常对比
         if not fw01_content and not fw02_content:
             # 两台设备都没有配置段的情况
-            worksheet.append(["配置对比结果: 两台设备都无interface Port-channel到failover配置段", "配置对比结果: 两台设备都无interface Port-channel到failover配置段"])
+            msg = "配置对比结果: 两台设备都无interface Port-channel到failover配置段"
+            worksheet.append([msg, msg])
         elif not fw01_content or not fw02_content:
             # 只有一台设备有配置段的情况
             missing_device = "FW01-FRP" if not fw01_content else "FW02-FRP"
-            worksheet.append([f"配置对比结果: {missing_device} 无interface Port-channel到failover配置段", f"配置对比结果: {missing_device} 无interface Port-channel到failover配置段"])
+            msg = f"配置对比结果: {missing_device} 无interface Port-channel到failover配置段"
+            worksheet.append([msg, msg])
         else:
             # 正常对比
             self._handle_normal_comparison(worksheet, site, fw01_content, fw02_content)
@@ -521,7 +611,8 @@ class ASACompareTask(BaseTask):
 
                 # 检查是否有有效数据
                 has_data = False
-                for ROW in worksheet.iter_rows(min_row=1, max_row=min(worksheet.max_row, 10)):
+                max_check_row = min(worksheet.max_row, 10)
+                for ROW in worksheet.iter_rows(min_row=1, max_row=max_check_row):
                     if any(cell.value for cell in ROW):
                         has_data = True
                         break
@@ -543,7 +634,14 @@ class ASACompareTask(BaseTask):
             for sheet_name in sheet_names:
                 worksheet = self._WB[sheet_name]
                 # 检查工作表是否为空（只有标题行或完全为空）
-                if worksheet.max_row <= 1 or (worksheet.max_row == 1 and not any(worksheet.cell(1, COLUMN).value for COLUMN in range(1, worksheet.max_column + 1))):
+                is_empty = (
+                    worksheet.max_row <= 1 or
+                    (worksheet.max_row == 1 and not any(
+                        worksheet.cell(1, COLUMN).value
+                        for COLUMN in range(1, worksheet.max_column + 1)
+                    ))
+                )
+                if is_empty:
                     # 删除空的工作表
                     self._WB.remove(worksheet)
 
@@ -613,8 +711,8 @@ class ASACompareTask(BaseTask):
                 # 尝试打开临时文件验证其完整性
                 try:
                     from openpyxl import load_workbook
-                    testWorkbook = load_workbook(temp_file)
-                    testWorkbook.close()
+                    test_workbook = load_workbook(temp_file)
+                    test_workbook.close()
                 except Exception:
                     # 临时文件损坏，删除它
                     if os.path.exists(temp_file):
@@ -633,8 +731,8 @@ class ASACompareTask(BaseTask):
                     # 再次验证最终文件
                     try:
                         from openpyxl import load_workbook
-                        testWorkbook = load_workbook(output_file)
-                        testWorkbook.close()
+                        test_workbook = load_workbook(output_file)
+                        test_workbook.close()
                         return True
                     except Exception:
                         return False
@@ -646,7 +744,7 @@ class ASACompareTask(BaseTask):
             if temp_file and os.path.exists(temp_file):
                 try:
                     os.remove(temp_file)
-                except:
+                except Exception:
                     pass
 
         return False
@@ -666,8 +764,8 @@ class ASACompareTask(BaseTask):
                 # 验证文件完整性
                 try:
                     from openpyxl import load_workbook
-                    testWorkbook = load_workbook(output_file)
-                    testWorkbook.close()
+                    test_workbook = load_workbook(output_file)
+                    test_workbook.close()
                     return True
                 except Exception:
                     return False
