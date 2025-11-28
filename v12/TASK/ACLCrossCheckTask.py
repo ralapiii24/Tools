@@ -24,6 +24,8 @@
 # - 步骤1:识别设备列（分析第一行，识别cat1/cat2/cat6列）- 自动识别N9K核心交换机、LINKAS接入交换机、OOB-DS交换机设备列
 # - 步骤2:提取ACL配置（按照定界find_acl_blocks_in_column截取ACL配置）- 从源Excel中提取ACL配置块，清除样式准备后续染色
 # - 步骤3:删除同平台策略（对cat1和cat6设备进行多余规则检测）- 仅对预定义的Sheet进行多余规则检测，删除同平台策略
+#   在删除之前，先提取同平台 ACL 到新的 Excel 文件中（LOG/ACLCrossCheckTask/{日期}-同平台N9K ACL检查.xlsx），每个平台一个 sheet
+#   仅收集 cat1（N9K核心交换机）和 cat6（OOB-DS交换机）设备的同平台 ACL，不收集 cat2（LINKAS接入交换机）设备
 # - 步骤4:cat1完全匹配检查（标绿色）- cat1 vs cat2匹配相同（两个Sheet）+ cat1 vs cat1反向匹配 + cat2 vs cat2反向匹配
 # - 步骤5:cat1覆盖匹配检查（标绿色）- cat1 vs cat2覆盖（两个Sheet）+ cat1 vs cat1反向匹配 + cat2 vs cat2反向匹配
 # - 步骤6:cat2覆盖cat1匹配检查（标绿色）- cat2 vs cat1覆盖（两个Sheet）+ cat1 vs cat1反向匹配 + cat2 vs cat2反向匹配
@@ -4106,6 +4108,13 @@ class ACLCrossCheckTask(BaseTask):
             data_to_write = {}  # {output_col: [(row, value, font, fill), ...]}
             redundant_count = {}  # {output_col: count} 统计删除的多余规则数量
             
+            # 收集同平台 ACL 数据（在删除之前提取）
+            # 结构：{platform_name: {device_name: [acl_block_lines, ...]}}
+            # acl_block_lines 包含完整的 ACL 块，包括 "ip access-list VLAN108-ACL" 定义行
+            same_platform_acls = {}  # {platform_name: {device_name: [acl_block_lines, ...]}}
+            # 使用 sheet_name 作为平台标识
+            platform_name = sheet_name
+            
 
             # 预构建集合用于快速查找（避免在循环内重复创建）
             cat1_cols_set = {col for col, _, _ in cat1_target_cols}
@@ -4151,10 +4160,17 @@ class ACLCrossCheckTask(BaseTask):
                 
 
                 for start_row, end_row in acl_blocks:
+                    # 先收集完整的 ACL 块（用于同平台 ACL 提取）
+                    acl_block_lines = []  # 存储当前 ACL 块的所有行
+                    has_redundant_rule = False  # 标记当前 ACL 块是否包含多余规则
+                    
                     # 从start_row到end_row提取ACL配置
                     for row_idx in range(start_row, end_row + 1):
                         source_cell = input_worksheet.cell(row=row_idx, column=original_col)
                         if source_cell.value is not None:
+                            # 收集 ACL 块的所有行（包括 ip access-list 定义行）
+                            acl_block_lines.append(str(source_cell.value))
+                            
                             # 复制样式
                             source_font = source_cell.font
                             source_fill = source_cell.fill
@@ -4188,6 +4204,7 @@ class ACLCrossCheckTask(BaseTask):
                                         if any_pattern.search(cell_text):
                                             is_redundant = True
                                             redundant_count[output_col] += 1
+                                            has_redundant_rule = True
                                     
 
                                     # 删除条件2：源any目的掩码8的 x.x.x.x/8
@@ -4201,6 +4218,7 @@ class ACLCrossCheckTask(BaseTask):
                                         if any_src_dst_8_pattern.search(cell_text):
                                             is_redundant = True
                                             redundant_count[output_col] += 1
+                                            has_redundant_rule = True
                                     
 
                                     # 删除条件3：icmp any x.x.x.252/30 或 x.x.x.253/30 或 x.x.x.254/30
@@ -4215,6 +4233,7 @@ class ACLCrossCheckTask(BaseTask):
                                         if icmp_any_252_254_pattern.search(cell_text):
                                             is_redundant = True
                                             redundant_count[output_col] += 1
+                                            has_redundant_rule = True
                                     
 
                                     # 删除条件4：源地址和目的地址都在平台网段内（原有逻辑）
@@ -4257,8 +4276,8 @@ class ACLCrossCheckTask(BaseTask):
                                                 if src_in_platform and dst_in_platform:
                                                     is_redundant = True
                                                     redundant_count[output_col] += 1
+                                                    has_redundant_rule = True
                             
-
                             # 如果不是多余规则，则添加到写入列表（包括ip access-list行、注释行等）
                             if not is_redundant:
                                 data_to_write[output_col].append((
@@ -4266,6 +4285,15 @@ class ACLCrossCheckTask(BaseTask):
                                     source_font, source_fill
                                 ))
                                 current_row += 1
+                    
+                    # 如果当前 ACL 块包含多余规则，且是 cat1 或 cat6 设备，则收集到同平台 ACL 数据
+                    if has_redundant_rule and (is_cat1 or is_cat6) and platform_networks:
+                        if platform_name not in same_platform_acls:
+                            same_platform_acls[platform_name] = {}
+                        if device_name not in same_platform_acls[platform_name]:
+                            same_platform_acls[platform_name][device_name] = []
+                        # 保存完整的 ACL 块（包括 ip access-list 定义行）
+                        same_platform_acls[platform_name][device_name].append(acl_block_lines)
             
 
             # 写入数据到输出工作表（跳过多余规则，相当于删除）
@@ -4430,7 +4458,8 @@ class ACLCrossCheckTask(BaseTask):
                 'cat1_target_cols': cat1_target_cols,
                 'cat2_target_cols': cat2_target_cols,
                 'cat6_target_cols': cat6_target_cols,
-                'output_worksheet': output_worksheet
+                'output_worksheet': output_worksheet,
+                'same_platform_acls': same_platform_acls  # 同平台 ACL 数据
             }
 
         except (ValueError, TypeError, AttributeError, KeyError, OSError, IOError) as EXCEPTION:
@@ -4444,12 +4473,99 @@ class ACLCrossCheckTask(BaseTask):
     # 重写run方法：处理所有Sheet并生成最终报告
     # ========== run方法拆分出的辅助方法 ==========
     
+    def _extract_same_platform_acls_to_excel(
+        self, all_same_platform_acls: Dict[str, Dict[str, List[List[str]]]]
+    ) -> None:
+        """提取同平台 ACL 到新的 Excel 文件（仅收集 cat1 和 cat6 设备）
+        
+        Args:
+            all_same_platform_acls: {platform_name: {device_name: [acl_block_lines, ...]}}
+                acl_block_lines 是包含完整 ACL 块的列表，包括 "ip access-list VLAN108-ACL" 定义行
+                仅包含 cat1（N9K核心交换机）和 cat6（OOB-DS交换机）设备的同平台 ACL
+        """
+        try:
+            # 生成输出文件名
+            today = datetime.now().strftime("%Y%m%d")
+            output_filename = f"{today}-同平台N9K ACL检查.xlsx"
+            output_path = os.path.join(self.OUTPUT_DIR, output_filename)
+            
+            # 创建新的工作簿
+            same_platform_workbook = Workbook()
+            if "Sheet" in same_platform_workbook.sheetnames:
+                same_platform_workbook.remove(same_platform_workbook["Sheet"])
+            
+            # 为每个平台创建一个 sheet
+            for platform_name, devices in all_same_platform_acls.items():
+                # 创建平台 sheet（sheet 名称不能超过 31 个字符）
+                sheet_name = (
+                    platform_name[:31]
+                    if len(platform_name) <= 31
+                    else platform_name[:28] + "..."
+                )
+                ws = same_platform_workbook.create_sheet(title=sheet_name)
+                
+                current_row = 1
+                
+                # 为每个设备写入 ACL 块
+                for device_name, acl_blocks in devices.items():
+                    # 写入设备名称（作为分隔）
+                    if current_row > 1:
+                        # 如果不是第一行，添加空行分隔
+                        current_row += 1
+                    
+                    device_cell = ws.cell(row=current_row, column=1)
+                    device_cell.value = f"# 设备: {device_name}"
+                    device_cell.font = Font(bold=True)
+                    current_row += 1
+                    
+                    # 写入每个 ACL 块
+                    for acl_block_lines in acl_blocks:
+                        for line in acl_block_lines:
+                            cell = ws.cell(row=current_row, column=1)
+                            cell.value = line
+                            current_row += 1
+                        # ACL 块之间添加空行
+                        current_row += 1
+                
+                # 设置列宽
+                ws.column_dimensions['A'].width = 120.0
+            
+            # 保存文件
+            same_platform_workbook.save(output_path)
+            self.add_result(
+                Level.OK,
+                f"同平台 ACL 提取完成：已保存到 {output_path}"
+            )
+            
+            # 统计信息
+            total_platforms = len(all_same_platform_acls)
+            total_devices = sum(len(devices) for devices in all_same_platform_acls.values())
+            total_acl_blocks = sum(
+                len(acl_blocks)
+                for devices in all_same_platform_acls.values()
+                for acl_blocks in devices.values()
+            )
+            self.add_result(
+                Level.OK,
+                f"同平台 ACL 统计：{total_platforms}个平台，"
+                f"{total_devices}个设备，{total_acl_blocks}个ACL块"
+            )
+            
+        except Exception as e:
+            self.add_result(
+                Level.ERROR,
+                f"提取同平台 ACL 到 Excel 失败: {e}"
+            )
+            import traceback
+            self.add_result(Level.ERROR, f"详细错误: {traceback.format_exc()}")
 
     # 处理所有Sheet，返回sheet_info_list
     def _process_all_sheets(self, task_items, input_workbook, output_workbook, progress):
         import time
         sheet_info_list = []
         total_start_time = time.time()
+        # 收集所有 sheet 的同平台 ACL 数据
+        all_same_platform_acls = {}  # {platform_name: {device_name: [acl_block_lines, ...]}}
         
 
         for idx, sheet_name in enumerate(task_items, 1):
@@ -4465,6 +4581,17 @@ class ACLCrossCheckTask(BaseTask):
 
                 input_worksheet = input_workbook[sheet_name]
                 sheet_info = self.run_single(sheet_name, output_workbook, input_worksheet)
+                
+                # 收集同平台 ACL 数据
+                if sheet_info and 'same_platform_acls' in sheet_info:
+                    sheet_same_platform_acls = sheet_info.get('same_platform_acls', {})
+                    for platform_name, devices in sheet_same_platform_acls.items():
+                        if platform_name not in all_same_platform_acls:
+                            all_same_platform_acls[platform_name] = {}
+                        for device_name, acl_blocks in devices.items():
+                            if device_name not in all_same_platform_acls[platform_name]:
+                                all_same_platform_acls[platform_name][device_name] = []
+                            all_same_platform_acls[platform_name][device_name].extend(acl_blocks)
                 
 
                 has_data = False
@@ -4498,7 +4625,10 @@ class ACLCrossCheckTask(BaseTask):
             if progress:
                 progress.set_description(f"{self.NAME} (Sheet {idx}/{len(task_items)}: {sheet_name})")
                 progress.update(1)
-            
+        
+        # 生成同平台 ACL Excel 文件（在删除之前）
+        if all_same_platform_acls:
+            self._extract_same_platform_acls_to_excel(all_same_platform_acls)
 
         return sheet_info_list
     
