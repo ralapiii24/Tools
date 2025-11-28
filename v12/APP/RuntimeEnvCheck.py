@@ -12,6 +12,27 @@ from typing import List, Optional, Tuple
 # 导入第三方库
 import yaml
 
+# 平台检测辅助函数
+def _get_platform_name() -> str:
+    """获取平台名称"""
+    platform = sys.platform
+    if platform == "win32":
+        return "Windows"
+    elif platform == "darwin":
+        return "macOS"
+    elif platform.startswith("linux"):
+        return "Linux"
+    else:
+        return platform
+
+def _is_windows() -> bool:
+    """判断是否为 Windows 平台"""
+    return sys.platform == "win32"
+
+def _needs_playwright_system_deps() -> bool:
+    """判断是否需要安装 Playwright 系统依赖（Linux 和 macOS 需要，Windows 不需要）"""
+    return sys.platform != "win32"
+
 # 获取项目根目录路径
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 CONFIG_FILE = PROJECT_ROOT / "YAML" / "Config.yaml"
@@ -69,6 +90,40 @@ def _install_packages(packages: List[str]) -> Tuple[bool, str]:
     if RESULT.returncode == 0:
         return True, "依赖包安装成功"
     return False, f"安装失败，返回码: {RESULT.returncode}\n错误信息: {RESULT.stderr}"
+
+def _upgrade_pip() -> Tuple[bool, str]:
+    """升级 pip 到最新版本"""
+    COMMAND = [sys.executable, "-m", "pip", "install", "--upgrade", "pip"]
+    RESULT = subprocess.run(
+        COMMAND,
+        capture_output=True,
+        text=True,
+        encoding='utf-8',
+        errors='ignore'
+    )
+
+    if RESULT.returncode == 0:
+        return True, "pip 升级成功"
+    return False, f"pip 升级失败，返回码: {RESULT.returncode}\n错误信息: {RESULT.stderr}"
+
+def _install_playwright_deps() -> Tuple[bool, str]:
+    """安装 Playwright 系统依赖（Linux 和 macOS 需要，Windows 不需要）"""
+    if _is_windows():
+        return True, "Windows 平台无需安装系统依赖"
+    
+    PLATFORM_NAME = _get_platform_name()
+    COMMAND = [sys.executable, "-m", "playwright", "install-deps"]
+    RESULT = subprocess.run(
+        COMMAND,
+        capture_output=True,
+        text=True,
+        encoding='utf-8',
+        errors='ignore'
+    )
+
+    if RESULT.returncode == 0:
+        return True, f"Playwright 系统依赖安装成功 ({PLATFORM_NAME})"
+    return False, f"Playwright 系统依赖安装失败 ({PLATFORM_NAME})，返回码: {RESULT.returncode}\n错误信息: {RESULT.stderr}"
 
 def _install_playwright_chromium() -> Tuple[bool, str]:
     COMMAND = [sys.executable, "-m", "playwright", "install", "chromium"]
@@ -181,3 +236,88 @@ def write_dependency_REPORT(REPORT: str) -> None:
             f.write(REPORT + "\n")
     except Exception:
         print("[预检] 写入报告文件失败：\n" + traceback.format_exc(), file=sys.stderr)
+
+# 手动安装所有依赖：整合 PipLibrary.bat 和 PipLibrary.sh 的功能
+def install_all_dependencies() -> bool:
+    """
+    手动安装所有巡检依赖库
+    功能包括：
+    1. 升级 pip
+    2. 安装所有 Python 依赖包
+    3. 安装 Playwright 系统依赖（Linux 和 macOS，Windows 不需要）
+    4. 安装 Playwright Chromium 浏览器
+    
+    支持平台：Windows、Linux、macOS
+    """
+    PLATFORM_NAME = _get_platform_name()
+    print(f"=== 正在安装巡检依赖库 ({PLATFORM_NAME}) ===")
+    
+    # 1. 升级 pip
+    print("正在升级 pip...")
+    OK, MSG = _upgrade_pip()
+    if not OK:
+        print(f"警告：pip 升级失败: {MSG}")
+    else:
+        print(MSG)
+    
+    # 2. 获取所有依赖包名称列表
+    ALL_PACKAGES = sorted([package_name for _, package_name, _ in REQUIRED_PY_PKGS])
+    print(f"\n正在安装 Python 依赖包: {', '.join(ALL_PACKAGES)}")
+    OK, MSG = _install_packages(ALL_PACKAGES)
+    if not OK:
+        print(f"错误：依赖包安装失败: {MSG}")
+        return False
+    print(MSG)
+    
+    # 3. 安装 Playwright 系统依赖（Linux 和 macOS 需要，Windows 不需要）
+    if _needs_playwright_system_deps():
+        print(f"\n=== 安装 Playwright 浏览器依赖 ({PLATFORM_NAME}) ===")
+        OK, MSG = _install_playwright_deps()
+        if not OK:
+            print(f"警告：Playwright 系统依赖安装失败: {MSG}")
+            print("提示：某些功能可能无法正常工作，建议手动安装系统依赖")
+        else:
+            print(MSG)
+    
+    # 4. 安装 Playwright Chromium 浏览器
+    print("\n正在安装 Playwright 浏览器（Chromium）...")
+    OK, MSG = _install_playwright_chromium()
+    if not OK:
+        print(f"错误：Chromium 安装失败: {MSG}")
+        return False
+    print(MSG)
+    
+    print(f"\n=== 安装完成 ({PLATFORM_NAME}) ===")
+    return True
+
+if __name__ == "__main__":
+    # 支持两种运行模式：
+    # 1. 直接运行：执行完整安装流程（整合 PipLibrary 功能）
+    # 2. 作为模块导入：提供 check_runtime_dependencies() 函数供其他模块调用
+    # 
+    # 支持平台：Windows、Linux、macOS
+    
+    PLATFORM_NAME = _get_platform_name()
+    
+    if len(sys.argv) > 1 and sys.argv[1] == "--check":
+        # 检查模式：只检查不安装
+        print(f"=== 依赖检查模式 ({PLATFORM_NAME}) ===\n")
+        OK, MSG = check_runtime_dependencies()
+        if not OK:
+            print(MSG)
+            sys.exit(1)
+        print(MSG)
+    else:
+        # 安装模式：执行完整安装流程
+        SUCCESS = install_all_dependencies()
+        if not SUCCESS:
+            print(f"\n错误：安装过程中出现错误，请检查上述输出信息")
+            sys.exit(1)
+        
+        # 安装完成后进行验证
+        print("\n=== 验证安装结果 ===")
+        OK, MSG = check_runtime_dependencies()
+        if not OK:
+            print(f"\n警告：安装后仍有问题:\n{MSG}")
+            sys.exit(1)
+        print(MSG)

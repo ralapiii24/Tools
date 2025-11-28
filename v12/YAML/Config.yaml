@@ -77,6 +77,7 @@ dependencies:
   yaml: pyyaml          # YAML解析库 - 所有TASK
   tqdm: tqdm           # 进度条库 - 所有TASK
   requests: requests   # HTTP请求库 - OxidizedTask, ESN9KLOGInspectTask
+  urllib3: urllib3     # HTTP客户端库 - OxidizedTask (requests的依赖，但代码中直接导入)
   lxml: lxml          # XML/HTML解析库 - OxidizedTask
   paramiko: paramiko  # SSH连接库 - MirrorFortiGateTask, ESLogstashTask, ESBaseTask, ESFlowTask
   playwright: playwright  # Web自动化库 - FXOSWebTask
