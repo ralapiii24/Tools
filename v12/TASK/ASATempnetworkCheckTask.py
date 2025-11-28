@@ -166,10 +166,9 @@ class ASATempnetworkCheckTask(BaseTask):
         temp_ips = []
         
         # 匹配object-group network ServTemp-To-Internet配置块
-        # 格式：
-        # object-group network ServTemp-To-Internet
-        #  network-object host 1.1.1.1
-        #  network-object host 10.6.130.11
+        # 支持两种格式：
+        # 格式1: network-object host 1.1.1.1
+        # 格式2: network-object 1.1.1.1 255.255.255.255
         
         # 查找object-group network ServTemp-To-Internet的位置
         start_pattern = r'object-group\s+network\s+ServTemp-To-Internet'
@@ -182,7 +181,7 @@ class ASATempnetworkCheckTask(BaseTask):
         start_pos = start_match.end()
         remaining_content = content[start_pos:]
         
-        # 匹配所有以空格或tab开头的network-object host行
+        # 匹配所有以空格或tab开头的network-object行
         # 直到遇到不以空格或tab开头的行（下一个顶级配置项）或文件末尾
         lines = remaining_content.split('\n')
         for line in lines:
@@ -191,8 +190,14 @@ class ASATempnetworkCheckTask(BaseTask):
             if line_stripped and not line.startswith((' ', '\t')):
                 break
             
-            # 匹配network-object host行
-            network_object_match = re.match(r'\s+network-object\s+host\s+(\d+\.\d+\.\d+\.\d+)', line, re.IGNORECASE)
+            # 匹配两种格式：
+            # 格式1: network-object host 1.1.1.1
+            # 格式2: network-object 1.1.1.1 255.255.255.255
+            network_object_match = re.match(
+                r'\s+network-object\s+(?:host\s+)?(\d+\.\d+\.\d+\.\d+)(?:\s+\d+\.\d+\.\d+\.\d+)?',
+                line,
+                re.IGNORECASE
+            )
             if network_object_match:
                 ip = network_object_match.group(1)
                 # 忽略默认配置IP
