@@ -464,8 +464,9 @@ def run_inspection_tasks(specified_tasks: Optional[List[str]] = None):
     START_TIME = time.time()
 
     # 检查REPORT文件是否存在，如果存在则读取现有内容
+    # 指定任务模式：直接覆盖，不保留历史记录
     EXISTING_CONTENT = ""
-    if os.path.exists(DAILY_REPORT):
+    if not specified_tasks and os.path.exists(DAILY_REPORT):
         with open(DAILY_REPORT, "r", encoding="utf-8") as f:
             EXISTING_CONTENT = f.read()
     
