@@ -100,8 +100,8 @@ class ASATempnetworkCheckTask(BaseTask):
                 for ip in temp_ips:
                     self.add_result(Level.WARN, f"站点 {site} 发现临时出网地址: {ip}")
             else:
-                # 如果没有找到临时出网地址，输出OK（可选，根据需求决定是否输出）
-                pass
+                # 如果没有找到临时出网地址，输出OK
+                self.add_result(Level.OK, f"站点 {site} 未发现临时出网地址")
 
         except Exception as e:
             self.add_result(Level.ERROR, f"站点 {site} 设备 {device_name} 处理失败: {e}")
