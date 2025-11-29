@@ -8,8 +8,8 @@
 # - 设备分类:自动识别cat1（N9K核心交换机）、cat2（LINKAS接入交换机）、cat6（OOB-DS交换机）设备
 # - 规则解析:使用CiscoBase.parse_acl统一解析（V11优化），支持NX-OS CIDR格式和IOS-XE wildcard/host混合格式，解析源/目的网段、协议、端口等信息
 # - ACL定界:使用CiscoBase.find_acl_blocks_in_column和extract_acl_rules_from_column统一处理（V11优化）
-# - 跨Sheet匹配:实现13个步骤的复杂匹配逻辑（步骤4-13），包括完全匹配、覆盖匹配、包含匹配、平台外覆盖、特殊规则检查等
-# - 双向检查:步骤4-10支持双向检查（Sheet A -> Sheet B和Sheet B -> Sheet A方向），确保匹配的完整性
+# - 跨Sheet匹配:实现跨平台步骤1-10的复杂匹配逻辑，包括完全匹配、覆盖匹配、包含匹配、平台外覆盖、特殊规则检查等
+# - 双向检查:跨平台步骤1-7支持双向检查（Sheet A -> Sheet B和Sheet B -> Sheet A方向），确保匹配的完整性
 # - 颜色标记:使用多颜色标记系统（绿色、蓝色、橙色、紫色、深黄色）区分不同类型的匹配规则
 # - 颜色优先级:绿色和蓝色具有最高优先级，不会被后续步骤覆盖；橙色、紫色、深黄色按优先级顺序标记
 # - 自动标记:同一Sheet内相同cat2规则自动标记相同颜色，确保一致性
@@ -21,21 +21,27 @@
 # - 颜色标记说明在染色逻辑文档中详细说明
 #
 # 13个步骤说明:
-# - 步骤1:识别设备列（分析第一行，识别cat1/cat2/cat6列）- 自动识别N9K核心交换机、LINKAS接入交换机、OOB-DS交换机设备列
-# - 步骤2:提取ACL配置（按照定界find_acl_blocks_in_column截取ACL配置）- 从源Excel中提取ACL配置块，清除样式准备后续染色
-# - 步骤3:删除同平台策略（对cat1和cat6设备进行多余规则检测）- 仅对预定义的Sheet进行多余规则检测，删除同平台策略
+# - 基础步骤1:识别设备列（分析第一行，识别cat1/cat2/cat6列）- 自动识别N9K核心交换机、LINKAS接入交换机、OOB-DS交换机设备列
+# - 基础步骤2:提取ACL配置（按照定界find_acl_blocks_in_column截取ACL配置）- 从源Excel中提取ACL配置块，清除样式准备后续染色
+# - 基础步骤3:删除同平台策略（对cat1和cat6设备进行多余规则检测）- 仅对预定义的Sheet进行多余规则检测，删除同平台策略
 #   在删除之前，先提取同平台 ACL 到新的 Excel 文件中（LOG/ACLCrossCheckTask/{日期}-同平台N9K ACL检查.xlsx），每个平台一个 sheet
 #   仅收集 cat1（N9K核心交换机）和 cat6（OOB-DS交换机）设备的同平台 ACL，不收集 cat2（LINKAS接入交换机）设备
-# - 步骤4:cat1完全匹配检查（标绿色）- cat1 vs cat2匹配相同（两个Sheet）+ cat1 vs cat1反向匹配 + cat2 vs cat2反向匹配
-# - 步骤5:cat1覆盖匹配检查（标绿色）- cat1 vs cat2覆盖（两个Sheet）+ cat1 vs cat1反向匹配 + cat2 vs cat2反向匹配
-# - 步骤6:cat2覆盖cat1匹配检查（标绿色）- cat2 vs cat1覆盖（两个Sheet）+ cat1 vs cat1反向匹配 + cat2 vs cat2反向匹配
-# - 步骤7:cat6完全匹配检查（标蓝色）- cat6 vs cat2匹配相同（两个Sheet）+ cat6 vs cat6反向匹配相同 + cat2 vs cat2反向匹配相同
-# - 步骤8:cat6覆盖匹配检查（标蓝色）- cat6 vs cat2覆盖（两个Sheet）+ cat6 vs cat6反向匹配相同 + cat2 vs cat2反向匹配相同
-# - 步骤9:cat2覆盖匹配cat6检查（标蓝色）- cat2 vs cat6覆盖（两个Sheet）+ cat6 vs cat6反向匹配相同 + cat2 vs cat2反向匹配相同
-# - 步骤10:cat6-cat1包含匹配（标蓝色）- A.cat6覆盖A.cat2 + A.cat6与B.cat1双向包含/反向匹配 + A.cat2与B.cat2反向匹配 + B.cat1覆盖B.cat2
-# - 步骤11:平台外覆盖检查（标橙色）- cat1覆盖cat2规则，源为本平台，目的为非platform_network_map地址
-# - 步骤12:特殊规则检查（标紫色）- cat1源地址为本平台地址，目的地址为特殊规则定义IP段地址，同平台cat1覆盖cat2，跨平台cat2反向检查通过
-# - 步骤13:特殊地址段检查（标深黄色）- cat2规则源地址和目的地址都在任何Sheet的special_network_map中
+# - 同平台步骤1:同Sheet同列cat1/cat6反向完全匹配检查（标绿色）- 处理 LOG/ACLCrossCheckTask/{日期}-同平台N9K ACL检查.xlsx
+#   - 忽略规则前面的序号和末尾的 log 关键字
+#   - 仅在同一个Sheet、同一列内对比，不跨Sheet、不跨列
+#   - 对 cat1 和 cat6 设备的 ACL 规则进行不同 ip access-list 块之间的反向完全匹配检查
+#     例如: VLAN100-ACL 的“162 permit tcp 10.10.100.31/32 eq 55888 10.10.108.63/32”
+#           与 VLAN108-ACL 的“174 permit tcp 10.10.108.63/32 10.10.100.31/32 eq 55888”标记为绿色
+# - 跨平台步骤1:cat1完全匹配检查（标绿色）- cat1 vs cat2匹配相同（两个Sheet）+ cat1 vs cat1反向匹配 + cat2 vs cat2反向匹配
+# - 跨平台步骤2:cat1覆盖匹配检查（标绿色）- cat1 vs cat2覆盖（两个Sheet）+ cat1 vs cat1反向匹配 + cat2 vs cat2反向匹配
+# - 跨平台步骤3:cat2覆盖cat1匹配检查（标绿色）- cat2 vs cat1覆盖（两个Sheet）+ cat1 vs cat1反向匹配 + cat2 vs cat2反向匹配
+# - 跨平台步骤4:cat6完全匹配检查（标蓝色）- cat6 vs cat2匹配相同（两个Sheet）+ cat6 vs cat6反向匹配相同 + cat2 vs cat2反向匹配相同
+# - 跨平台步骤5:cat6覆盖匹配检查（标蓝色）- cat6 vs cat2覆盖（两个Sheet）+ cat6 vs cat6反向匹配相同 + cat2 vs cat2反向匹配相同
+# - 跨平台步骤6:cat2覆盖匹配cat6检查（标蓝色）- cat2 vs cat6覆盖（两个Sheet）+ cat6 vs cat6反向匹配相同 + cat2 vs cat2反向匹配相同
+# - 跨平台步骤7:cat6-cat1包含匹配（标蓝色）- A.cat6覆盖A.cat2 + A.cat6与B.cat1双向包含/反向匹配 + A.cat2与B.cat2反向匹配 + B.cat1覆盖B.cat2
+# - 跨平台步骤8:平台外覆盖检查（标橙色）- cat1覆盖cat2规则，源为本平台，目的为非platform_network_map地址
+# - 跨平台步骤9:特殊规则检查（标紫色）- cat1源地址为本平台地址，目的地址为特殊规则定义IP段地址，同平台cat1覆盖cat2，跨平台cat2反向检查通过
+# - 跨平台步骤10:特殊地址段检查（标深黄色）- cat2规则源地址和目的地址都在任何Sheet的special_network_map中
 #
 # 性能优化:
 # - 使用预构建索引避免重复计算（cat2反向匹配索引、cat6与cat1包含关系索引、cat1覆盖cat2索引）
@@ -559,7 +565,7 @@ def rule_covers(RULE_A: ACLRule, RULE_B: ACLRule) -> bool:
         return False
     return True
 
-# 检查cat1规则的端口是否是cat2规则端口集合的一部分：用于步骤6，识别多个cat1规则一起覆盖cat2规则的所有端口
+# 检查cat1规则的端口是否是cat2规则端口集合的一部分：用于cat1/cat2覆盖匹配相关步骤，识别多个cat1规则一起覆盖cat2规则的所有端口
 def rule_port_in_cat2_ports(RULE_A: ACLRule, RULE_B: ACLRule) -> bool:
     if RULE_A.action != RULE_B.action:
         return False
@@ -1244,7 +1250,7 @@ class ACLCrossCheckTask(BaseTask):
 
         return result
 
-    # ========== 步骤4-9：跨Sheet比较和标记方法 ==========
+    # ========== 跨平台步骤1-6：跨Sheet比较和标记方法 ==========
     
 
     # 跨Sheet匹配检查的公共辅助方法（支持双向检查）：检查Sheet内部匹配和跨Sheet匹配，返回匹配的规则对列表
@@ -1615,11 +1621,13 @@ class ACLCrossCheckTask(BaseTask):
         return matched_pairs
     
 
-    # ========== 合并后的步骤4-6：cat1/cat2匹配检查（统一函数） ==========
+    # ========== 合并后的跨平台步骤1-3：cat1/cat2匹配检查（统一函数） ==========
     
 
-    # 统一的cat1/cat2匹配检查函数（合并步骤4-6）：step_num为步骤编号（4, 5, 或 6），match_type为'complete'（完全匹配）、'cat1_cover'（cat1覆盖cat2）、'cat2_cover'（cat2覆盖cat1），exclude_cells为已标记的单元格列表（用于避免覆盖）
-    def _step4_6_cat1_cat2_match_check(self, sheet_info_list, output_workbook, step_num, 
+    # 统一的cat1/cat2匹配检查函数（对应跨平台步骤1-3，内部step_num为4/5/6）：
+    # - match_type为'complete'（完全匹配）、'cat1_cover'（cat1覆盖cat2）、'cat2_cover'（cat2覆盖cat1）
+    # - exclude_cells为已标记的单元格列表（用于避免覆盖）
+    def _match_cat1_cat2_cross_platform(self, sheet_info_list, output_workbook, step_num, 
 
                                         match_type, exclude_cells=None, rules_cache=None):
         # 根据match_type选择内部匹配函数
@@ -1691,34 +1699,34 @@ class ACLCrossCheckTask(BaseTask):
     
 
     # 步骤4：cat1完全匹配检查（标绿色）
-    def _step4_complete_match_check(self, sheet_info_list, output_workbook, rules_cache=None):
-        return self._step4_6_cat1_cat2_match_check(
+    def _step_cat1_complete_match_check(self, sheet_info_list, output_workbook, rules_cache=None):
+        return self._match_cat1_cat2_cross_platform(
             sheet_info_list, output_workbook, 4, 'complete', None, rules_cache
         )
     
 
     # 步骤5：cat1覆盖匹配检查（标绿色）
-    def _step5_cat1_cover_match_check(self, sheet_info_list, output_workbook, green_cells, rules_cache=None):
-        return self._step4_6_cat1_cat2_match_check(
+    def _step_cat1_cover_match_check(self, sheet_info_list, output_workbook, green_cells, rules_cache=None):
+        return self._match_cat1_cat2_cross_platform(
             sheet_info_list, output_workbook, 5, 'cat1_cover', green_cells, rules_cache
         )
     
 
     # 步骤6：cat2覆盖cat1匹配检查（标绿色）
-    def _step6_cat2_cover_cat1_match_check(
+    def _step_cat2_cover_cat1_match_check(
         self, sheet_info_list, output_workbook, green_cells,
         dark_green_cells, rules_cache=None
     ):
         # 合并所有已排除的单元格
         exclude_cells = list(green_cells) + list(dark_green_cells) if dark_green_cells else green_cells
-        return self._step4_6_cat1_cat2_match_check(
+        return self._match_cat1_cat2_cross_platform(
             sheet_info_list, output_workbook, 6, 'cat2_cover', exclude_cells, rules_cache
         )
     
 
     # 步骤10：跨Sheet cat1和cat2匹配检查（标绿色）：检查条件（三个条件必须全部满足）：
     # 1.cat1反向匹配 2.cat2反向匹配覆盖 3.Sheet A内部覆盖
-    def _step7_cross_sheet_cat1_cat2_reverse_match_check(
+    def _step_cross_sheet_cat1_cat2_reverse_match_check(
         self, sheet_info_list, output_workbook, green_cells, rules_cache=None
     ):
         new_green_cells = []
@@ -1970,7 +1978,7 @@ class ACLCrossCheckTask(BaseTask):
     # 检查条件（三个条件必须全部满足）：
     # 1.源地址为本平台地址，目的地址为special_network_map
     # 2.Sheet A内部覆盖 3.Sheet A的cat2规则与Sheet B的cat2规则反向匹配完全相同
-    def _step8_platform_src_special_dst_cat1_cat2_check(
+    def _step_platform_src_special_dst_cat1_cat2_check(
         self, sheet_info_list, output_workbook, green_cells, rules_cache=None
     ):
         # 步骤8：平台源地址特殊目的地址cat1和cat2匹配检查（标绿色）：检查条件（三个条件必须全部满足）：1.源地址为本平台地址，目的地址为special_network_map 2.Sheet A内部覆盖 3.Sheet A的cat2规则与Sheet B的cat2规则反向匹配完全相同
@@ -2216,7 +2224,7 @@ class ACLCrossCheckTask(BaseTask):
     
 
     # 步骤9：cat2 IP协议覆盖cat1 TCP协议检查（标绿色）：检查条件（三个条件必须全部满足）：1.源地址为本平台地址，目的地址为special_network_map 2.Sheet A的cat2 IP协议覆盖Sheet A的cat1 TCP协议 3.Sheet A的cat2规则与Sheet B的cat2规则反向匹配完全相同
-    def _step8_cat2_ip_cover_cat1_tcp_check(self, sheet_info_list, output_workbook, green_cells, rules_cache=None):
+    def _step_cat2_ip_cover_cat1_tcp_check(self, sheet_info_list, output_workbook, green_cells, rules_cache=None):
         # 步骤9：cat2 IP协议覆盖cat1 TCP协议检查（标绿色）：检查条件（三个条件必须全部满足）：
         # 1.源地址为本平台地址，目的地址为special_network_map 2.Sheet A的cat2 IP协议覆盖Sheet A的cat1 TCP协议 3.Sheet A的cat2规则与Sheet B的cat2规则反向匹配完全相同
         new_green_cells = []
@@ -2493,7 +2501,7 @@ class ACLCrossCheckTask(BaseTask):
     # 1.Sheet A的cat1目的地址为special_network_map
     # 2.Sheet A的cat2规则覆盖Sheet A的cat1规则
     # 3.Sheet A的cat2规则与Sheet B的cat2规则反向匹配
-    def _step11_cat1_cat2_match_cat2_reverse_check(
+    def _step_cat1_cat2_match_cat2_reverse_check(
         self, sheet_info_list, output_workbook, green_cells, rules_cache=None
     ):
         # 步骤11：cat1与cat2匹配且cat2反向匹配检查（标绿色）：检查条件（三个条件必须全部满足）：
@@ -2722,11 +2730,13 @@ class ACLCrossCheckTask(BaseTask):
         return green_cells
     
 
-    # ========== 合并后的步骤11-13：cat6/cat2匹配检查（统一函数） ==========
+    # ========== 合并后的跨平台步骤4-6：cat6/cat2匹配检查（统一函数） ==========
     
 
-    # 统一的cat6/cat2匹配检查函数（合并步骤11-13）：step_num为步骤编号（11, 12, 或 13），match_type为'complete'（完全匹配）、'cat6_cover'（cat6覆盖cat2）、'cat2_cover'（cat2覆盖cat6），green_cells为已标记的绿色单元格列表（用于避免覆盖）
-    def _step11_13_cat6_cat2_match_check(self, sheet_info_list, output_workbook, step_num, 
+    # 统一的cat6/cat2匹配检查函数（对应跨平台步骤4-6，内部step_num为11/12/13）：
+    # - match_type为'complete'（完全匹配）、'cat6_cover'（cat6覆盖cat2）、'cat2_cover'（cat2覆盖cat6）
+    # - green_cells为已标记的绿色单元格列表（用于避免覆盖）
+    def _match_cat6_cat2_cross_platform(self, sheet_info_list, output_workbook, step_num, 
 
                                           match_type, green_cells, rules_cache=None):
         # 根据match_type选择内部匹配函数
@@ -2807,28 +2817,28 @@ class ACLCrossCheckTask(BaseTask):
     
 
     # 步骤11：cat6完全匹配检查（标蓝色）
-    def _step7_complete_match_check(self, sheet_info_list, output_workbook, green_cells, rules_cache=None):
-        return self._step11_13_cat6_cat2_match_check(
+    def _step_cat6_complete_match_check(self, sheet_info_list, output_workbook, green_cells, rules_cache=None):
+        return self._match_cat6_cat2_cross_platform(
             sheet_info_list, output_workbook, 11, 'complete', green_cells, rules_cache
         )
     
 
     # 步骤12：cat6覆盖匹配检查（标蓝色）
-    def _step8_cat6_cover_match_check(self, sheet_info_list, output_workbook, green_cells, rules_cache=None):
-        return self._step11_13_cat6_cat2_match_check(
+    def _step_cat6_cover_match_check(self, sheet_info_list, output_workbook, green_cells, rules_cache=None):
+        return self._match_cat6_cat2_cross_platform(
             sheet_info_list, output_workbook, 12, 'cat6_cover', green_cells, rules_cache
         )
     
 
     # 步骤13：cat2覆盖cat6匹配检查（标蓝色）
-    def _step9_cat2_cover_cat6_match_check(self, sheet_info_list, output_workbook, green_cells, rules_cache=None):
-        return self._step11_13_cat6_cat2_match_check(
+    def _step_cat2_cover_cat6_match_check(self, sheet_info_list, output_workbook, green_cells, rules_cache=None):
+        return self._match_cat6_cat2_cross_platform(
             sheet_info_list, output_workbook, 13, 'cat2_cover', green_cells, rules_cache
         )
     
 
     # 步骤15：cat6-cat1包含匹配（标蓝色）：检查条件（四个条件必须全部满足）：1.Sheet A的cat6覆盖cat2 2.cat6与cat1双向包含/反向匹配 3.cat2反向匹配 4.Sheet B的cat1覆盖cat2
-    def _step10_cat6_cat1_containment_check(self, sheet_info_list, output_workbook, green_cells, rules_cache=None):
+    def _step_cat6_cat1_containment_check(self, sheet_info_list, output_workbook, green_cells, rules_cache=None):
         existing_green_cell_set = self._create_cell_set(green_cells)
         new_blue_cells = []
         blue_match_count = 0
@@ -3150,7 +3160,7 @@ class ACLCrossCheckTask(BaseTask):
     
 
     # 步骤7：多个cat1规则覆盖cat2规则检查（标绿色）：检查条件（四个条件必须全部满足）：1.多个cat1规则一起覆盖cat2（两个Sheet） 2.cat1反向匹配 3.cat2反向匹配
-    def _step7_multi_cat1_cover_cat2_check(self, sheet_info_list, output_workbook, green_cells, rules_cache=None):
+    def _step_multi_cat1_cover_cat2_check(self, sheet_info_list, output_workbook, green_cells, rules_cache=None):
         # 步骤7：多个cat1规则覆盖cat2规则检查（标绿色）：检查条件（四个条件必须全部满足）：1.多个cat1规则一起覆盖cat2（两个Sheet） 2.cat1反向匹配 3.cat2反向匹配
         new_green_cells = []
         green_match_count = 0
@@ -3538,7 +3548,7 @@ class ACLCrossCheckTask(BaseTask):
     
 
     # 步骤16：平台外覆盖检查（标橙色）：检查同Sheet内，源地址为本平台地址、目的为非platform_network_map地址的cat1覆盖cat2规则
-    def _step11_platform_outside_check(self, sheet_info_list, output_workbook, green_cells, rules_cache=None):
+    def _step_platform_outside_check(self, sheet_info_list, output_workbook, green_cells, rules_cache=None):
         # 步骤16：平台外覆盖检查（标橙色）：检查同Sheet内，源地址为本平台地址、目的为非platform_network_map地址的cat1覆盖cat2规则
         yellow_cells = []
         yellow_match_count = 0
@@ -3693,7 +3703,7 @@ class ACLCrossCheckTask(BaseTask):
     
 
     # 步骤17：特殊规则检查（标橙色）：检查条件：1.cat1源地址为本平台地址 2.cat1目的地址为特殊规则定义IP段地址 3.cat1规则覆盖cat2规则 4.跨平台cat2反向检查通过
-    def _step12_special_rule_check(self, sheet_info_list, output_workbook, green_cells, yellow_cells, rules_cache=None):
+    def _step_special_rule_check(self, sheet_info_list, output_workbook, green_cells, yellow_cells, rules_cache=None):
         # 步骤17：特殊规则检查（标橙色）：检查条件：1.cat1源地址为本平台地址 2.cat1目的地址为特殊规则定义IP段地址 3.cat1规则覆盖cat2规则 4.跨平台cat2反向检查通过
         gray_cells = []
         gray_match_count = 0
@@ -3843,7 +3853,7 @@ class ACLCrossCheckTask(BaseTask):
 
     # 步骤18：特殊地址段检查（标红色）：
     # 检查cat2规则的源地址和目的地址是否都在任何Sheet的special_network_map中
-    def _step13_special_address_check(
+    def _step_special_address_check(
         self, sheet_info_list, output_workbook, green_cells,
         yellow_cells, gray_cells, rules_cache=None
     ):
@@ -3944,7 +3954,7 @@ class ACLCrossCheckTask(BaseTask):
     # 步骤19：cat2特殊源地址非平台目的地址检查（标红色）：
     # 检查cat2规则的源地址在special_network_map中，
     # 目的地址不在任何Sheet的platform_network_map中
-    def _step16_cat2_special_src_non_platform_dst_check(
+    def _step_cat2_special_src_non_platform_dst_check(
         self, sheet_info_list, output_workbook, green_cells,
         yellow_cells, gray_cells, yellow_light_cells, rules_cache=None
     ):
@@ -4096,7 +4106,7 @@ class ACLCrossCheckTask(BaseTask):
                 # 显式清除所有样式（font和fill），确保没有颜色
                 TARGET_CELL.font = Font()  # 清除字体样式（默认黑色，无特殊格式）
                 TARGET_CELL.fill = PatternFill()  # 清除填充样式（无填充）
-                # 样式和颜色由后续步骤（步骤4-9）统一设置
+                # 样式和颜色由后续步骤（跨平台步骤1-6）统一设置
 
             # 获取平台网段（用于cat1设备多余规则检测）
             platform_networks = self._get_platform_networks(sheet_name)
@@ -4360,7 +4370,7 @@ class ACLCrossCheckTask(BaseTask):
                     
 
                     # 步骤2显式清除所有样式，确保不继承源文件的颜色
-                    # 样式和颜色由后续步骤（步骤4-9）统一设置
+                    # 样式和颜色由后续步骤（跨平台步骤1-6）统一设置
                     TARGET_CELL.font = Font()  # 清除字体样式（默认黑色，无特殊格式）
                     TARGET_CELL.fill = PatternFill()  # 清除填充样式（无填充）
                     
@@ -4516,6 +4526,13 @@ class ACLCrossCheckTask(BaseTask):
             if "Sheet" in same_platform_workbook.sheetnames:
                 same_platform_workbook.remove(same_platform_workbook["Sheet"])
             
+            # 用于步骤4：同Sheet同列反向完全匹配检查的数据收集
+            # 结构：{(sheet_name, col): [(row, acl_name, parsed_rule), ...]}
+            reverse_match_rules: Dict[
+                Tuple[str, int],
+                List[Tuple[int, str, ACLRule]]
+            ] = {}
+            
             # 为每个平台创建一个 sheet
             for platform_name, devices in all_same_platform_acls.items():
                 # 创建平台 sheet（sheet 名称不能超过 31 个字符）
@@ -4550,9 +4567,30 @@ class ACLCrossCheckTask(BaseTask):
                     
                     # 写入每个 ACL 块
                     for acl_block_lines in acl_blocks:
+                        acl_name = ""
                         for line in acl_block_lines:
+                            cell_text = str(line).strip()
                             cell = ws.cell(row=cat1_row, column=1)
-                            cell.value = line
+                            cell.value = cell_text
+                            
+                            # 记录ACL名称（ip access-list开头的行）
+                            if "ip access-list" in cell_text.lower():
+                                acl_name = cell_text
+                            else:
+                                # 步骤4：仅对permit/deny规则行进行解析和收集（忽略行号和log等由parse_acl处理）
+                                if (
+                                    "permit" in cell_text.lower()
+                                    or "deny" in cell_text.lower()
+                                ):
+                                    parsed_rule, parse_error = parse_acl(cell_text)
+                                    if parsed_rule:
+                                        key = (sheet_name, 1)
+                                        if key not in reverse_match_rules:
+                                            reverse_match_rules[key] = []
+                                        reverse_match_rules[key].append(
+                                            (cat1_row, acl_name, parsed_rule)
+                                        )
+                            
                             cat1_row += 1
                         # ACL 块之间添加空行
                         cat1_row += 1
@@ -4571,9 +4609,30 @@ class ACLCrossCheckTask(BaseTask):
                     
                     # 写入每个 ACL 块
                     for acl_block_lines in acl_blocks:
+                        acl_name = ""
                         for line in acl_block_lines:
+                            cell_text = str(line).strip()
                             cell = ws.cell(row=cat6_row, column=2)
-                            cell.value = line
+                            cell.value = cell_text
+                            
+                            # 记录ACL名称（ip access-list开头的行）
+                            if "ip access-list" in cell_text.lower():
+                                acl_name = cell_text
+                            else:
+                                # 步骤4：仅对permit/deny规则行进行解析和收集（忽略行号和log等由parse_acl处理）
+                                if (
+                                    "permit" in cell_text.lower()
+                                    or "deny" in cell_text.lower()
+                                ):
+                                    parsed_rule, parse_error = parse_acl(cell_text)
+                                    if parsed_rule:
+                                        key = (sheet_name, 2)
+                                        if key not in reverse_match_rules:
+                                            reverse_match_rules[key] = []
+                                        reverse_match_rules[key].append(
+                                            (cat6_row, acl_name, parsed_rule)
+                                        )
+                            
                             cat6_row += 1
                         # ACL 块之间添加空行
                         cat6_row += 1
@@ -4581,6 +4640,59 @@ class ACLCrossCheckTask(BaseTask):
                 # 设置列宽
                 ws.column_dimensions['A'].width = 120.0
                 ws.column_dimensions['B'].width = 120.0
+            
+            # 步骤4：在同一Sheet同一列内，不同ACL块之间做反向完全匹配检查，并标记为绿色
+            total_pairs = 0
+            for (sheet_name, col), rules in reverse_match_rules.items():
+                if len(rules) < 2:
+                    continue
+                
+                ws = same_platform_workbook[sheet_name]
+                matched_cells = set()
+                rule_count = len(rules)
+                
+                # rules: [(row, acl_name, parsed_rule), ...]
+                for i in range(rule_count):
+                    row_a, acl_a, rule_a = rules[i]
+                    for j in range(i + 1, rule_count):
+                        row_b, acl_b, rule_b = rules[j]
+                        # 只比较不同ACL块之间的规则
+                        if not acl_a or not acl_b or acl_a == acl_b:
+                            continue
+                        # 反向完全匹配：A反向匹配B且B反向匹配A
+                        if (
+                            rule_reverse_matches(rule_a, rule_b)
+                            and rule_reverse_matches(rule_b, rule_a)
+                        ):
+                            matched_cells.add((row_a, col))
+                            matched_cells.add((row_b, col))
+                            total_pairs += 1
+                
+                # 标记匹配单元格为绿色字体
+                for row, col_idx in matched_cells:
+                    cell = ws.cell(row=row, column=col_idx)
+                    old_font = cell.font or Font()
+                    cell.font = Font(
+                        name=old_font.name,
+                        size=old_font.size,
+                        bold=old_font.bold,
+                        italic=old_font.italic,
+                        vertAlign=old_font.vertAlign,
+                        underline=old_font.underline,
+                        strike=old_font.strike,
+                        color="FF00FF00",
+                    )
+            
+            if total_pairs > 0:
+                self.add_result(
+                    Level.OK,
+                    f"同平台 ACL 反向完全匹配检查完成：共标记 {total_pairs} 对规则（绿色）"
+                )
+            else:
+                self.add_result(
+                    Level.OK,
+                    "同平台 ACL 反向完全匹配检查完成：未发现反向完全匹配规则"
+                )
             
             # 保存文件
             same_platform_workbook.save(output_path)
@@ -4751,7 +4863,7 @@ class ACLCrossCheckTask(BaseTask):
 
         # 步骤4：cat1完全匹配检查
         green_cells = self._execute_step(
-            4, "cat1完全匹配检查", self._step4_complete_match_check,
+            4, "cat1完全匹配检查", self._step_cat1_complete_match_check,
             sheet_info_list, output_workbook, rules_cache=rules_cache,
             progress=progress, save_after_step=SAVE_AFTER_EACH_STEP,
             output_path=output_path, stop_at_step=STOP_AT_STEP
@@ -4762,7 +4874,7 @@ class ACLCrossCheckTask(BaseTask):
 
             # 步骤5：cat1覆盖匹配检查（标绿色）
         dark_green_cells = self._execute_step(
-            5, "cat1覆盖匹配检查", self._step5_cat1_cover_match_check,
+            5, "cat1覆盖匹配检查", self._step_cat1_cover_match_check,
             sheet_info_list, output_workbook, green_cells, rules_cache=rules_cache,
             progress=progress, save_after_step=SAVE_AFTER_EACH_STEP,
             output_path=output_path, stop_at_step=STOP_AT_STEP
@@ -4773,7 +4885,7 @@ class ACLCrossCheckTask(BaseTask):
 
             # 步骤6：cat2覆盖cat1匹配检查（标绿色）
         light_green_cells = self._execute_step(
-            6, "cat2覆盖cat1匹配检查", self._step6_cat2_cover_cat1_match_check,
+            6, "cat2覆盖cat1匹配检查", self._step_cat2_cover_cat1_match_check,
             sheet_info_list, output_workbook, green_cells, dark_green_cells, rules_cache=rules_cache,
             progress=progress, save_after_step=SAVE_AFTER_EACH_STEP,
             output_path=output_path, stop_at_step=STOP_AT_STEP
@@ -4785,7 +4897,7 @@ class ACLCrossCheckTask(BaseTask):
         # 步骤7：多个cat1规则覆盖cat2规则检查（标绿色）
         all_green_cells = list(set(green_cells + dark_green_cells + light_green_cells))
         green_cells = self._execute_step(
-            7, "多个cat1规则覆盖cat2规则检查", self._step7_multi_cat1_cover_cat2_check,
+            7, "多个cat1规则覆盖cat2规则检查", self._step_multi_cat1_cover_cat2_check,
             sheet_info_list, output_workbook, all_green_cells, rules_cache=rules_cache,
             progress=progress, save_after_step=SAVE_AFTER_EACH_STEP,
             output_path=output_path, stop_at_step=STOP_AT_STEP
@@ -4796,7 +4908,7 @@ class ACLCrossCheckTask(BaseTask):
 
         # 步骤8：平台源地址特殊目的地址cat1和cat2匹配检查（标绿色）
         green_cells = self._execute_step(
-            8, "平台源地址特殊目的地址cat1和cat2匹配检查", self._step8_platform_src_special_dst_cat1_cat2_check,
+            8, "平台源地址特殊目的地址cat1和cat2匹配检查", self._step_platform_src_special_dst_cat1_cat2_check,
             sheet_info_list, output_workbook, green_cells, rules_cache=rules_cache,
             progress=progress, save_after_step=SAVE_AFTER_EACH_STEP,
             output_path=output_path, stop_at_step=STOP_AT_STEP
@@ -4807,7 +4919,7 @@ class ACLCrossCheckTask(BaseTask):
 
         # 步骤9：cat2 IP协议覆盖cat1 TCP协议检查（标绿色）
         green_cells = self._execute_step(
-            9, "cat2 IP协议覆盖cat1 TCP协议检查", self._step8_cat2_ip_cover_cat1_tcp_check,
+            9, "cat2 IP协议覆盖cat1 TCP协议检查", self._step_cat2_ip_cover_cat1_tcp_check,
             sheet_info_list, output_workbook, green_cells, rules_cache=rules_cache,
             progress=progress, save_after_step=SAVE_AFTER_EACH_STEP,
             output_path=output_path, stop_at_step=STOP_AT_STEP
@@ -4818,7 +4930,7 @@ class ACLCrossCheckTask(BaseTask):
 
         # 步骤10：跨Sheet cat1和cat2匹配检查（标绿色）
         green_cells = self._execute_step(
-            10, "跨Sheet cat1和cat2匹配检查", self._step7_cross_sheet_cat1_cat2_reverse_match_check,
+            10, "跨Sheet cat1和cat2匹配检查", self._step_cross_sheet_cat1_cat2_reverse_match_check,
             sheet_info_list, output_workbook, green_cells, rules_cache=rules_cache,
             progress=progress, save_after_step=SAVE_AFTER_EACH_STEP,
             output_path=output_path, stop_at_step=STOP_AT_STEP
@@ -4829,7 +4941,7 @@ class ACLCrossCheckTask(BaseTask):
 
         # 步骤11：cat1与cat2匹配且cat2反向匹配检查（标绿色）
         green_cells = self._execute_step(
-            11, "cat1与cat2匹配且cat2反向匹配检查", self._step11_cat1_cat2_match_cat2_reverse_check,
+            11, "cat1与cat2匹配且cat2反向匹配检查", self._step_cat1_cat2_match_cat2_reverse_check,
             sheet_info_list, output_workbook, green_cells, rules_cache=rules_cache,
             progress=progress, save_after_step=SAVE_AFTER_EACH_STEP,
             output_path=output_path, stop_at_step=STOP_AT_STEP
@@ -4840,7 +4952,7 @@ class ACLCrossCheckTask(BaseTask):
 
         # 步骤12：cat6完全匹配检查（标蓝色）
         green_cells = self._execute_step(
-            12, "cat6完全匹配检查", self._step7_complete_match_check,
+            12, "cat6完全匹配检查", self._step_cat6_complete_match_check,
             sheet_info_list, output_workbook, green_cells, rules_cache=rules_cache,
             progress=progress, save_after_step=SAVE_AFTER_EACH_STEP,
             output_path=output_path, stop_at_step=STOP_AT_STEP
@@ -4851,7 +4963,7 @@ class ACLCrossCheckTask(BaseTask):
 
         # 步骤13：cat6覆盖匹配检查（标蓝色）
         green_cells = self._execute_step(
-            13, "cat6覆盖匹配检查", self._step8_cat6_cover_match_check,
+            13, "cat6覆盖匹配检查", self._step_cat6_cover_match_check,
             sheet_info_list, output_workbook, green_cells, rules_cache=rules_cache,
             progress=progress, save_after_step=SAVE_AFTER_EACH_STEP,
             output_path=output_path, stop_at_step=STOP_AT_STEP
@@ -4862,7 +4974,7 @@ class ACLCrossCheckTask(BaseTask):
 
         # 步骤14：cat2覆盖匹配cat6检查（标蓝色）
         green_cells = self._execute_step(
-            14, "cat2覆盖匹配cat6检查", self._step9_cat2_cover_cat6_match_check,
+            14, "cat2覆盖匹配cat6检查", self._step_cat2_cover_cat6_match_check,
             sheet_info_list, output_workbook, green_cells, rules_cache=rules_cache,
             progress=progress, save_after_step=SAVE_AFTER_EACH_STEP,
             output_path=output_path, stop_at_step=STOP_AT_STEP
@@ -4873,7 +4985,7 @@ class ACLCrossCheckTask(BaseTask):
 
         # 步骤15：cat6- cat1 包含匹配（标蓝色）
         green_cells = self._execute_step(
-            15, "cat6- cat1 包含匹配检查", self._step10_cat6_cat1_containment_check,
+            15, "cat6- cat1 包含匹配检查", self._step_cat6_cat1_containment_check,
             sheet_info_list, output_workbook, green_cells, rules_cache=rules_cache,
             progress=progress, save_after_step=SAVE_AFTER_EACH_STEP,
             output_path=output_path, stop_at_step=STOP_AT_STEP
@@ -4884,7 +4996,7 @@ class ACLCrossCheckTask(BaseTask):
 
         # 步骤16：平台外覆盖检查（标橙色）
         yellow_cells = self._execute_step(
-            16, "平台外覆盖检查", self._step11_platform_outside_check,
+            16, "平台外覆盖检查", self._step_platform_outside_check,
             sheet_info_list, output_workbook, green_cells, rules_cache=rules_cache,
             progress=progress, save_after_step=SAVE_AFTER_EACH_STEP,
             output_path=output_path, stop_at_step=STOP_AT_STEP
@@ -4895,7 +5007,7 @@ class ACLCrossCheckTask(BaseTask):
 
         # 步骤17：特殊规则检查（标橙色）
         gray_cells = self._execute_step(
-            17, "特殊规则检查", self._step12_special_rule_check,
+            17, "特殊规则检查", self._step_special_rule_check,
             sheet_info_list, output_workbook, green_cells, yellow_cells, rules_cache=rules_cache,
             progress=progress, save_after_step=SAVE_AFTER_EACH_STEP,
             output_path=output_path, stop_at_step=STOP_AT_STEP
@@ -4906,7 +5018,7 @@ class ACLCrossCheckTask(BaseTask):
 
         # 步骤18：特殊地址段检查（标红色）
         yellow_light_cells = self._execute_step(
-            18, "特殊地址段检查", self._step13_special_address_check,
+            18, "特殊地址段检查", self._step_special_address_check,
             sheet_info_list, output_workbook, green_cells, yellow_cells, gray_cells, rules_cache=rules_cache,
             progress=progress, save_after_step=SAVE_AFTER_EACH_STEP,
             output_path=output_path, stop_at_step=STOP_AT_STEP
@@ -4918,7 +5030,7 @@ class ACLCrossCheckTask(BaseTask):
         # 步骤19：cat2特殊源地址非平台目的地址检查（标红色）
         red_cells = self._execute_step(
             19, "cat2特殊源地址非平台目的地址检查",
-            self._step16_cat2_special_src_non_platform_dst_check,
+            self._step_cat2_special_src_non_platform_dst_check,
             sheet_info_list, output_workbook, green_cells, yellow_cells,
             gray_cells, yellow_light_cells, rules_cache=rules_cache,
             progress=progress, save_after_step=SAVE_AFTER_EACH_STEP,
