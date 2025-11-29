@@ -4552,41 +4552,47 @@ class ACLCrossCheckTask(BaseTask):
                 )
                 ws = same_platform_workbook.create_sheet(title=sheet_name)
                 
-                # 将设备按 cat1 和 cat6 分类
-                cat1_devices = {}  # {device_name: [acl_blocks, ...]}
+                # 将设备按 cat1 和 cat6 分类，cat1设备按设备编号（01/03）进一步分类
+                cat1_devices_01 = {}  # {device_name: [acl_blocks, ...]} 设备编号为01的cat1设备
+                cat1_devices_03 = {}  # {device_name: [acl_blocks, ...]} 设备编号为03的cat1设备
                 cat6_devices = {}  # {device_name: [acl_blocks, ...]}
                 
                 for device_name, acl_blocks in devices.items():
                     if _is_cat1_device(device_name):
-                        cat1_devices[device_name] = acl_blocks
+                        device_number = _extract_device_number(device_name)
+                        if device_number == 1:
+                            cat1_devices_01[device_name] = acl_blocks
+                        elif device_number == 3:
+                            cat1_devices_03[device_name] = acl_blocks
                     elif _is_cat6_device(device_name):
                         cat6_devices[device_name] = acl_blocks
                 
-                # 写入 cat1 设备（第1列）
-                cat1_row = 1
-                for device_name, acl_blocks in cat1_devices.items():
+                # 写入 cat1 设备（01设备写入第1列，03设备写入第2列）
+                # 第1列：cat1设备01
+                cat1_01_row = 1
+                for device_name, acl_blocks in cat1_devices_01.items():
                     # 如果不是第一行，添加空行分隔
-                    if cat1_row > 1:
-                        cat1_row += 1
+                    if cat1_01_row > 1:
+                        cat1_01_row += 1
                     
                     # 写入设备名称（去掉 "# 设备: " 前缀，不加粗）
-                    device_cell = ws.cell(row=cat1_row, column=1)
+                    device_cell = ws.cell(row=cat1_01_row, column=1)
                     device_cell.value = device_name
-                    cat1_row += 1
+                    cat1_01_row += 1
                     
                     # 写入每个 ACL 块
                     for acl_block_lines in acl_blocks:
                         acl_name = ""
                         for line in acl_block_lines:
                             cell_text = str(line).strip()
-                            cell = ws.cell(row=cat1_row, column=1)
+                            cell = ws.cell(row=cat1_01_row, column=1)
                             cell.value = cell_text
                             
                             # 记录ACL名称（ip access-list开头的行）
                             if "ip access-list" in cell_text.lower():
                                 acl_name = cell_text
                             else:
-                                # 步骤4：仅对permit/deny规则行进行解析和收集（忽略行号和log等由parse_acl处理）
+                                # 同平台步骤1：仅对permit/deny规则行进行解析和收集（忽略行号和log等由parse_acl处理）
                                 if (
                                     "permit" in cell_text.lower()
                                     or "deny" in cell_text.lower()
@@ -4597,38 +4603,38 @@ class ACLCrossCheckTask(BaseTask):
                                         if key not in reverse_match_rules:
                                             reverse_match_rules[key] = []
                                         reverse_match_rules[key].append(
-                                            (cat1_row, acl_name, parsed_rule)
+                                            (cat1_01_row, acl_name, parsed_rule)
                                         )
                             
-                            cat1_row += 1
+                            cat1_01_row += 1
                         # ACL 块之间添加空行
-                        cat1_row += 1
+                        cat1_01_row += 1
                 
-                # 写入 cat6 设备（第2列）
-                cat6_row = 1
-                for device_name, acl_blocks in cat6_devices.items():
+                # 第2列：cat1设备03（如果存在）
+                cat1_03_row = 1
+                for device_name, acl_blocks in cat1_devices_03.items():
                     # 如果不是第一行，添加空行分隔
-                    if cat6_row > 1:
-                        cat6_row += 1
+                    if cat1_03_row > 1:
+                        cat1_03_row += 1
                     
                     # 写入设备名称（去掉 "# 设备: " 前缀，不加粗）
-                    device_cell = ws.cell(row=cat6_row, column=2)
+                    device_cell = ws.cell(row=cat1_03_row, column=2)
                     device_cell.value = device_name
-                    cat6_row += 1
+                    cat1_03_row += 1
                     
                     # 写入每个 ACL 块
                     for acl_block_lines in acl_blocks:
                         acl_name = ""
                         for line in acl_block_lines:
                             cell_text = str(line).strip()
-                            cell = ws.cell(row=cat6_row, column=2)
+                            cell = ws.cell(row=cat1_03_row, column=2)
                             cell.value = cell_text
                             
                             # 记录ACL名称（ip access-list开头的行）
                             if "ip access-list" in cell_text.lower():
                                 acl_name = cell_text
                             else:
-                                # 步骤4：仅对permit/deny规则行进行解析和收集（忽略行号和log等由parse_acl处理）
+                                # 同平台步骤1：仅对permit/deny规则行进行解析和收集（忽略行号和log等由parse_acl处理）
                                 if (
                                     "permit" in cell_text.lower()
                                     or "deny" in cell_text.lower()
@@ -4639,6 +4645,49 @@ class ACLCrossCheckTask(BaseTask):
                                         if key not in reverse_match_rules:
                                             reverse_match_rules[key] = []
                                         reverse_match_rules[key].append(
+                                            (cat1_03_row, acl_name, parsed_rule)
+                                        )
+                            
+                            cat1_03_row += 1
+                        # ACL 块之间添加空行
+                        cat1_03_row += 1
+                
+                # 写入 cat6 设备（如果第2列被03占用，cat6放在第3列；否则放在第2列）
+                cat6_col = 3 if cat1_devices_03 else 2  # 如果第2列被03占用，cat6放在第3列
+                cat6_row = 1
+                for device_name, acl_blocks in cat6_devices.items():
+                    # 如果不是第一行，添加空行分隔
+                    if cat6_row > 1:
+                        cat6_row += 1
+                    
+                    # 写入设备名称（去掉 "# 设备: " 前缀，不加粗）
+                    device_cell = ws.cell(row=cat6_row, column=cat6_col)
+                    device_cell.value = device_name
+                    cat6_row += 1
+                    
+                    # 写入每个 ACL 块
+                    for acl_block_lines in acl_blocks:
+                        acl_name = ""
+                        for line in acl_block_lines:
+                            cell_text = str(line).strip()
+                            cell = ws.cell(row=cat6_row, column=cat6_col)
+                            cell.value = cell_text
+                            
+                            # 记录ACL名称（ip access-list开头的行）
+                            if "ip access-list" in cell_text.lower():
+                                acl_name = cell_text
+                            else:
+                                # 同平台步骤1：仅对permit/deny规则行进行解析和收集（忽略行号和log等由parse_acl处理）
+                                if (
+                                    "permit" in cell_text.lower()
+                                    or "deny" in cell_text.lower()
+                                ):
+                                    parsed_rule, parse_error = parse_acl(cell_text)
+                                    if parsed_rule:
+                                        key = (sheet_name, cat6_col)
+                                        if key not in reverse_match_rules:
+                                            reverse_match_rules[key] = []
+                                        reverse_match_rules[key].append(
                                             (cat6_row, acl_name, parsed_rule)
                                         )
                             
@@ -4646,9 +4695,11 @@ class ACLCrossCheckTask(BaseTask):
                         # ACL 块之间添加空行
                         cat6_row += 1
                 
-                # 设置列宽
+                # 设置列宽（根据实际使用的列数）
                 ws.column_dimensions['A'].width = 120.0
                 ws.column_dimensions['B'].width = 120.0
+                if cat6_col == 3:
+                    ws.column_dimensions['C'].width = 120.0
             
             # 同平台步骤1：在同一Sheet同一列内，不同ACL块之间做反向完全匹配检查，并标记为绿色
             total_pairs = 0
@@ -4769,42 +4820,80 @@ class ACLCrossCheckTask(BaseTask):
                 progress.update(1)
 
             # 同平台步骤3：同Sheet内cat1和cat6反向完全匹配检查（标蓝色，仅cat1列与cat6列之间）
+            # cat1的01设备在第1列，03设备在第2列（如果存在）
+            # cat6设备在第2列（如果03不存在）或第3列（如果03存在）
             total_cat1_cat6_pairs = 0
             for sheet_name in same_platform_workbook.sheetnames:
-                cat1_rules = reverse_match_rules.get((sheet_name, 1), [])
-                cat6_rules = reverse_match_rules.get((sheet_name, 2), [])
-                if not cat1_rules or not cat6_rules:
-                    continue
-
                 ws = same_platform_workbook[sheet_name]
-                for row1, _acl1, rule1 in cat1_rules:
-                    for row6, _acl6, rule6 in cat6_rules:
-                        if (
-                            rule_reverse_matches(rule1, rule6)
-                            and rule_reverse_matches(rule6, rule1)
-                        ):
-                            # 标记cat1和cat6对应规则为蓝色，不覆盖已有绿色、橙色
-                            for row, col_idx in ((row1, 1), (row6, 2)):
-                                cell = ws.cell(row=row, column=col_idx)
-                                try:
-                                    color_str = str(cell.font.color or "").upper()
-                                    # 已经是绿色(FF00FF00)或橙色(FFA500)则不覆盖
-                                    if "00FF00" in color_str or "FFA500" in color_str:
-                                        continue
-                                except Exception:
-                                    pass
-                                old_font = cell.font or Font()
-                                cell.font = Font(
-                                    name=old_font.name,
-                                    size=old_font.size,
-                                    bold=old_font.bold,
-                                    italic=old_font.italic,
-                                    vertAlign=old_font.vertAlign,
-                                    underline=old_font.underline,
-                                    strike=old_font.strike,
-                                    color="0000FF",  # 蓝色
-                                )
-                            total_cat1_cat6_pairs += 1
+                
+                # 找出cat1列和cat6列
+                cat1_cols = []  # cat1列号列表（可能是1和/或2）
+                cat6_col = None  # cat6列号（可能是2或3）
+                
+                # 检查所有可能的列（1, 2, 3）
+                for col in [1, 2, 3]:
+                    key = (sheet_name, col)
+                    if key in reverse_match_rules:
+                        # 判断是cat1还是cat6：通过检查该列的第一个设备名称
+                        # 查找该列的第一行（设备名称行）
+                        first_row_with_value = None
+                        for row in range(1, ws.max_row + 1):
+                            cell = ws.cell(row=row, column=col)
+                            if cell.value and isinstance(cell.value, str):
+                                device_name = str(cell.value).strip()
+                                if device_name and len(device_name) > 10:  # 设备名称通常较长
+                                    first_row_with_value = row
+                                    if _is_cat1_device(device_name):
+                                        if col not in cat1_cols:
+                                            cat1_cols.append(col)
+                                    elif _is_cat6_device(device_name):
+                                        if cat6_col is None:
+                                            cat6_col = col
+                                    break
+                
+                # 如果没有找到cat6列，跳过
+                if cat6_col is None or not cat1_cols:
+                    continue
+                
+                # 获取cat6规则
+                cat6_rules = reverse_match_rules.get((sheet_name, cat6_col), [])
+                if not cat6_rules:
+                    continue
+                
+                # 对每个cat1列，与cat6列进行匹配检查
+                for cat1_col in cat1_cols:
+                    cat1_rules = reverse_match_rules.get((sheet_name, cat1_col), [])
+                    if not cat1_rules:
+                        continue
+                    
+                    for row1, _acl1, rule1 in cat1_rules:
+                        for row6, _acl6, rule6 in cat6_rules:
+                            if (
+                                rule_reverse_matches(rule1, rule6)
+                                and rule_reverse_matches(rule6, rule1)
+                            ):
+                                # 标记cat1和cat6对应规则为蓝色，不覆盖已有绿色、橙色
+                                for row, col_idx in ((row1, cat1_col), (row6, cat6_col)):
+                                    cell = ws.cell(row=row, column=col_idx)
+                                    try:
+                                        color_str = str(cell.font.color or "").upper()
+                                        # 已经是绿色(FF00FF00)或橙色(FFA500)则不覆盖
+                                        if "00FF00" in color_str or "FFA500" in color_str:
+                                            continue
+                                    except Exception:
+                                        pass
+                                    old_font = cell.font or Font()
+                                    cell.font = Font(
+                                        name=old_font.name,
+                                        size=old_font.size,
+                                        bold=old_font.bold,
+                                        italic=old_font.italic,
+                                        vertAlign=old_font.vertAlign,
+                                        underline=old_font.underline,
+                                        strike=old_font.strike,
+                                        color="0000FF",  # 蓝色
+                                    )
+                                total_cat1_cat6_pairs += 1
 
             if total_cat1_cat6_pairs > 0:
                 self.add_result(
