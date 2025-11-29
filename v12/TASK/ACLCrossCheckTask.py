@@ -5067,6 +5067,8 @@ class ACLCrossCheckTask(BaseTask):
             # 处理所有Sheet
             sheet_info_list = self._process_all_sheets(task_items, input_workbook, output_workbook, progress)
             
+            # 生成同平台 ACL Excel 文件后直接返回，不执行后续步骤
+            return
 
             # 预构建规则缓存
             rules_cache = self._build_rules_cache(sheet_info_list, progress)
