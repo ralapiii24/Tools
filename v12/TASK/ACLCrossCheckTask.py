@@ -4526,31 +4526,61 @@ class ACLCrossCheckTask(BaseTask):
                 )
                 ws = same_platform_workbook.create_sheet(title=sheet_name)
                 
-                current_row = 1
+                # 将设备按 cat1 和 cat6 分类
+                cat1_devices = {}  # {device_name: [acl_blocks, ...]}
+                cat6_devices = {}  # {device_name: [acl_blocks, ...]}
                 
-                # 为每个设备写入 ACL 块
                 for device_name, acl_blocks in devices.items():
-                    # 写入设备名称（作为分隔）
-                    if current_row > 1:
-                        # 如果不是第一行，添加空行分隔
-                        current_row += 1
+                    if _is_cat1_device(device_name):
+                        cat1_devices[device_name] = acl_blocks
+                    elif _is_cat6_device(device_name):
+                        cat6_devices[device_name] = acl_blocks
+                
+                # 写入 cat1 设备（第1列）
+                cat1_row = 1
+                for device_name, acl_blocks in cat1_devices.items():
+                    # 如果不是第一行，添加空行分隔
+                    if cat1_row > 1:
+                        cat1_row += 1
                     
-                    device_cell = ws.cell(row=current_row, column=1)
-                    device_cell.value = f"# 设备: {device_name}"
-                    device_cell.font = Font(bold=True)
-                    current_row += 1
+                    # 写入设备名称（去掉 "# 设备: " 前缀，不加粗）
+                    device_cell = ws.cell(row=cat1_row, column=1)
+                    device_cell.value = device_name
+                    cat1_row += 1
                     
                     # 写入每个 ACL 块
                     for acl_block_lines in acl_blocks:
                         for line in acl_block_lines:
-                            cell = ws.cell(row=current_row, column=1)
+                            cell = ws.cell(row=cat1_row, column=1)
                             cell.value = line
-                            current_row += 1
+                            cat1_row += 1
                         # ACL 块之间添加空行
-                        current_row += 1
+                        cat1_row += 1
+                
+                # 写入 cat6 设备（第2列）
+                cat6_row = 1
+                for device_name, acl_blocks in cat6_devices.items():
+                    # 如果不是第一行，添加空行分隔
+                    if cat6_row > 1:
+                        cat6_row += 1
+                    
+                    # 写入设备名称（去掉 "# 设备: " 前缀，不加粗）
+                    device_cell = ws.cell(row=cat6_row, column=2)
+                    device_cell.value = device_name
+                    cat6_row += 1
+                    
+                    # 写入每个 ACL 块
+                    for acl_block_lines in acl_blocks:
+                        for line in acl_block_lines:
+                            cell = ws.cell(row=cat6_row, column=2)
+                            cell.value = line
+                            cat6_row += 1
+                        # ACL 块之间添加空行
+                        cat6_row += 1
                 
                 # 设置列宽
                 ws.column_dimensions['A'].width = 120.0
+                ws.column_dimensions['B'].width = 120.0
             
             # 保存文件
             same_platform_workbook.save(output_path)
