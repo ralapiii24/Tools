@@ -32,6 +32,12 @@
 #   - 对 cat1 和 cat6 设备的 ACL 规则进行不同 ip access-list 块之间的反向完全匹配检查
 #     例如: VLAN100-ACL 的“162 permit tcp 10.10.100.31/32 eq 55888 10.10.108.63/32”
 #           与 VLAN108-ACL 的“174 permit tcp 10.10.108.63/32 10.10.100.31/32 eq 55888”标记为绿色
+# - 同平台步骤2:同Sheet同列目的地址为special_network_map的规则检查（标橙色）
+#   - 仅在同一个Sheet、同一列内对比，不跨Sheet、不跨列
+#   - 对 cat1 和 cat6 设备的 ACL 规则中，目的地址落在本Sheet对应的special_network_map内的规则标记为橙色（不覆盖已有绿色）
+# - 同平台步骤3:同Sheet内cat1和cat6反向完全匹配检查（标蓝色）
+#   - 仅在同一个Sheet内对比，不跨Sheet
+#   - 对 cat1 列与 cat6 列之间，源/目的地址和端口互为反向完全匹配的规则对标记为蓝色（不覆盖已有绿色、橙色）
 # - 跨平台步骤1:cat1完全匹配检查（标绿色）- cat1 vs cat2匹配相同（两个Sheet）+ cat1 vs cat1反向匹配 + cat2 vs cat2反向匹配
 # - 跨平台步骤2:cat1覆盖匹配检查（标绿色）- cat1 vs cat2覆盖（两个Sheet）+ cat1 vs cat1反向匹配 + cat2 vs cat2反向匹配
 # - 跨平台步骤3:cat2覆盖cat1匹配检查（标绿色）- cat2 vs cat1覆盖（两个Sheet）+ cat1 vs cat1反向匹配 + cat2 vs cat2反向匹配
@@ -4753,6 +4759,56 @@ class ACLCrossCheckTask(BaseTask):
                 self.add_result(
                     Level.OK,
                     "同平台步骤2：目的地址为special_network_map检查完成，未发现匹配规则"
+                )
+
+            # 同平台步骤3：同Sheet内cat1和cat6反向完全匹配检查（标蓝色，仅cat1列与cat6列之间）
+            total_cat1_cat6_pairs = 0
+            for sheet_name in same_platform_workbook.sheetnames:
+                cat1_rules = reverse_match_rules.get((sheet_name, 1), [])
+                cat6_rules = reverse_match_rules.get((sheet_name, 2), [])
+                if not cat1_rules or not cat6_rules:
+                    continue
+
+                ws = same_platform_workbook[sheet_name]
+                for row1, _acl1, rule1 in cat1_rules:
+                    for row6, _acl6, rule6 in cat6_rules:
+                        if (
+                            rule_reverse_matches(rule1, rule6)
+                            and rule_reverse_matches(rule6, rule1)
+                        ):
+                            # 标记cat1和cat6对应规则为蓝色，不覆盖已有绿色、橙色
+                            for row, col_idx in ((row1, 1), (row6, 2)):
+                                cell = ws.cell(row=row, column=col_idx)
+                                try:
+                                    color_str = str(cell.font.color or "").upper()
+                                    # 已经是绿色(FF00FF00)或橙色(FFA500)则不覆盖
+                                    if "00FF00" in color_str or "FFA500" in color_str:
+                                        continue
+                                except Exception:
+                                    pass
+                                old_font = cell.font or Font()
+                                cell.font = Font(
+                                    name=old_font.name,
+                                    size=old_font.size,
+                                    bold=old_font.bold,
+                                    italic=old_font.italic,
+                                    vertAlign=old_font.vertAlign,
+                                    underline=old_font.underline,
+                                    strike=old_font.strike,
+                                    color="0000FF",  # 蓝色
+                                )
+                            total_cat1_cat6_pairs += 1
+
+            if total_cat1_cat6_pairs > 0:
+                self.add_result(
+                    Level.OK,
+                    "同平台步骤3：cat1和cat6反向完全匹配检查完成，"
+                    f"共标记 {total_cat1_cat6_pairs} 对规则为蓝色"
+                )
+            else:
+                self.add_result(
+                    Level.OK,
+                    "同平台步骤3：cat1和cat6反向完全匹配检查完成，未发现匹配规则"
                 )
             
             # 保存文件
