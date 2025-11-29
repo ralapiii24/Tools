@@ -4512,14 +4512,17 @@ class ACLCrossCheckTask(BaseTask):
     # ========== run方法拆分出的辅助方法 ==========
     
     def _extract_same_platform_acls_to_excel(
-        self, all_same_platform_acls: Dict[str, Dict[str, List[List[str]]]]
+        self,
+        all_same_platform_acls: Dict[str, Dict[str, List[List[str]]]],
+        progress=None,
     ) -> None:
-        """提取同平台 ACL 到新的 Excel 文件（仅收集 cat1 和 cat6 设备）
+        """提取同平台 ACL 到新的 Excel 文件（仅收集 cat1 和 cat6 设备）并执行同平台步骤。
         
         Args:
             all_same_platform_acls: {platform_name: {device_name: [acl_block_lines, ...]}}
                 acl_block_lines 是包含完整 ACL 块的列表，包括 "ip access-list VLAN108-ACL" 定义行
                 仅包含 cat1（N9K核心交换机）和 cat6（OOB-DS交换机）设备的同平台 ACL
+            progress: tqdm 进度条对象，可选，用于更新同平台步骤的进度
         """
         try:
             # 生成输出文件名
@@ -4699,6 +4702,8 @@ class ACLCrossCheckTask(BaseTask):
                     Level.OK,
                     "同平台步骤1：反向完全匹配检查完成，未发现反向完全匹配规则"
                 )
+            if progress:
+                progress.update(1)
             
             # 同平台步骤2：目的地址为special_network_map标记橙色（仅同Sheet同列，不跨Sheet/列）
             total_special = 0
@@ -4760,6 +4765,8 @@ class ACLCrossCheckTask(BaseTask):
                     Level.OK,
                     "同平台步骤2：目的地址为special_network_map检查完成，未发现匹配规则"
                 )
+            if progress:
+                progress.update(1)
 
             # 同平台步骤3：同Sheet内cat1和cat6反向完全匹配检查（标蓝色，仅cat1列与cat6列之间）
             total_cat1_cat6_pairs = 0
@@ -4810,6 +4817,8 @@ class ACLCrossCheckTask(BaseTask):
                     Level.OK,
                     "同平台步骤3：cat1和cat6反向完全匹配检查完成，未发现匹配规则"
                 )
+            if progress:
+                progress.update(1)
             
             # 保存文件
             same_platform_workbook.save(output_path)
@@ -4856,7 +4865,6 @@ class ACLCrossCheckTask(BaseTask):
                     self.add_result(Level.WARN, f"Sheet {sheet_name} 在输入文件中不存在，跳过")
                     if progress:
                         progress.set_description(f"{self.NAME} (Sheet {idx}/{len(task_items)}: {sheet_name})")
-                        progress.update(1)
                     continue
                 
 
@@ -4905,11 +4913,10 @@ class ACLCrossCheckTask(BaseTask):
 
             if progress:
                 progress.set_description(f"{self.NAME} (Sheet {idx}/{len(task_items)}: {sheet_name})")
-                progress.update(1)
         
-        # 生成同平台 ACL Excel 文件（在删除之前）
+        # 生成同平台 ACL Excel 文件（在删除之前），并执行同平台步骤1-3
         if all_same_platform_acls:
-            self._extract_same_platform_acls_to_excel(all_same_platform_acls)
+            self._extract_same_platform_acls_to_excel(all_same_platform_acls, progress)
 
         return sheet_info_list
     
@@ -4937,10 +4944,6 @@ class ACLCrossCheckTask(BaseTask):
         
 
         self.add_result(Level.OK, f"规则缓存构建完成，共 {len(rules_cache)} 个Sheet")
-        if progress:
-            progress.update(1)
-        
-
         return rules_cache
     
 
@@ -4965,7 +4968,7 @@ class ACLCrossCheckTask(BaseTask):
         return exclude_sets
     
 
-    # 执行所有步骤4-19
+    # 执行所有步骤4-19（按“跨平台步骤1-10”概念步骤进行进度统计）
     def _execute_all_steps(self, sheet_info_list, output_workbook, rules_cache, progress, output_path):
         STOP_AT_STEP = None
         SAVE_AFTER_EACH_STEP = False
@@ -4978,183 +4981,185 @@ class ACLCrossCheckTask(BaseTask):
             self.add_result(Level.WARN, "每个步骤后都会保存文件（可能影响性能）")
         
 
-        # 步骤4：cat1完全匹配检查
+        # 跨平台步骤1：cat1完全匹配检查（标绿色）
         green_cells = self._execute_step(
             4, "cat1完全匹配检查", self._step_cat1_complete_match_check,
             sheet_info_list, output_workbook, rules_cache=rules_cache,
-            progress=progress, save_after_step=SAVE_AFTER_EACH_STEP,
+            progress=None, save_after_step=SAVE_AFTER_EACH_STEP,
             output_path=output_path, stop_at_step=STOP_AT_STEP
         )
         if green_cells is None:
             return None
+        if progress:
+            progress.update(1)
             
-
-            # 步骤5：cat1覆盖匹配检查（标绿色）
+        # 跨平台步骤2：cat1覆盖匹配检查（标绿色）
         dark_green_cells = self._execute_step(
             5, "cat1覆盖匹配检查", self._step_cat1_cover_match_check,
             sheet_info_list, output_workbook, green_cells, rules_cache=rules_cache,
-            progress=progress, save_after_step=SAVE_AFTER_EACH_STEP,
+            progress=None, save_after_step=SAVE_AFTER_EACH_STEP,
             output_path=output_path, stop_at_step=STOP_AT_STEP
         )
         if dark_green_cells is None:
             return None
+        if progress:
+            progress.update(1)
             
-
-            # 步骤6：cat2覆盖cat1匹配检查（标绿色）
+        # 跨平台步骤3：cat2覆盖cat1匹配检查（标绿色，含多个cat1规则覆盖cat2）
         light_green_cells = self._execute_step(
             6, "cat2覆盖cat1匹配检查", self._step_cat2_cover_cat1_match_check,
             sheet_info_list, output_workbook, green_cells, dark_green_cells, rules_cache=rules_cache,
-            progress=progress, save_after_step=SAVE_AFTER_EACH_STEP,
+            progress=None, save_after_step=SAVE_AFTER_EACH_STEP,
             output_path=output_path, stop_at_step=STOP_AT_STEP
         )
         if light_green_cells is None:
             return None
-        
 
-        # 步骤7：多个cat1规则覆盖cat2规则检查（标绿色）
         all_green_cells = list(set(green_cells + dark_green_cells + light_green_cells))
         green_cells = self._execute_step(
             7, "多个cat1规则覆盖cat2规则检查", self._step_multi_cat1_cover_cat2_check,
             sheet_info_list, output_workbook, all_green_cells, rules_cache=rules_cache,
-            progress=progress, save_after_step=SAVE_AFTER_EACH_STEP,
+            progress=None, save_after_step=SAVE_AFTER_EACH_STEP,
             output_path=output_path, stop_at_step=STOP_AT_STEP
         )
         if green_cells is None:
             return None
+        if progress:
+            progress.update(1)
         
-
-        # 步骤8：平台源地址特殊目的地址cat1和cat2匹配检查（标绿色）
+        # 跨平台步骤4：平台源地址特殊目的地址cat1和cat2匹配检查（标绿色）
         green_cells = self._execute_step(
             8, "平台源地址特殊目的地址cat1和cat2匹配检查", self._step_platform_src_special_dst_cat1_cat2_check,
             sheet_info_list, output_workbook, green_cells, rules_cache=rules_cache,
-            progress=progress, save_after_step=SAVE_AFTER_EACH_STEP,
+            progress=None, save_after_step=SAVE_AFTER_EACH_STEP,
             output_path=output_path, stop_at_step=STOP_AT_STEP
         )
         if green_cells is None:
             return None
-        
+        if progress:
+            progress.update(1)
 
-        # 步骤9：cat2 IP协议覆盖cat1 TCP协议检查（标绿色）
+        # 跨平台步骤5：cat2 IP协议覆盖cat1 TCP协议检查（标绿色）
         green_cells = self._execute_step(
             9, "cat2 IP协议覆盖cat1 TCP协议检查", self._step_cat2_ip_cover_cat1_tcp_check,
             sheet_info_list, output_workbook, green_cells, rules_cache=rules_cache,
-            progress=progress, save_after_step=SAVE_AFTER_EACH_STEP,
+            progress=None, save_after_step=SAVE_AFTER_EACH_STEP,
             output_path=output_path, stop_at_step=STOP_AT_STEP
         )
         if green_cells is None:
             return None
-        
+        if progress:
+            progress.update(1)
 
-        # 步骤10：跨Sheet cat1和cat2匹配检查（标绿色）
+        # 跨平台步骤6：跨Sheet cat1和cat2匹配 + cat2反向匹配检查（标绿色）
         green_cells = self._execute_step(
             10, "跨Sheet cat1和cat2匹配检查", self._step_cross_sheet_cat1_cat2_reverse_match_check,
             sheet_info_list, output_workbook, green_cells, rules_cache=rules_cache,
-            progress=progress, save_after_step=SAVE_AFTER_EACH_STEP,
+            progress=None, save_after_step=SAVE_AFTER_EACH_STEP,
             output_path=output_path, stop_at_step=STOP_AT_STEP
         )
         if green_cells is None:
             return None
-        
 
-        # 步骤11：cat1与cat2匹配且cat2反向匹配检查（标绿色）
         green_cells = self._execute_step(
             11, "cat1与cat2匹配且cat2反向匹配检查", self._step_cat1_cat2_match_cat2_reverse_check,
             sheet_info_list, output_workbook, green_cells, rules_cache=rules_cache,
-            progress=progress, save_after_step=SAVE_AFTER_EACH_STEP,
+            progress=None, save_after_step=SAVE_AFTER_EACH_STEP,
             output_path=output_path, stop_at_step=STOP_AT_STEP
         )
         if green_cells is None:
             return None
-        
+        if progress:
+            progress.update(1)
 
-        # 步骤12：cat6完全匹配检查（标蓝色）
+        # 跨平台步骤7：cat6与cat2的完全/覆盖/反向匹配检查（标蓝色）
         green_cells = self._execute_step(
             12, "cat6完全匹配检查", self._step_cat6_complete_match_check,
             sheet_info_list, output_workbook, green_cells, rules_cache=rules_cache,
-            progress=progress, save_after_step=SAVE_AFTER_EACH_STEP,
+            progress=None, save_after_step=SAVE_AFTER_EACH_STEP,
             output_path=output_path, stop_at_step=STOP_AT_STEP
         )
         if green_cells is None:
             return None
-        
 
-        # 步骤13：cat6覆盖匹配检查（标蓝色）
         green_cells = self._execute_step(
             13, "cat6覆盖匹配检查", self._step_cat6_cover_match_check,
             sheet_info_list, output_workbook, green_cells, rules_cache=rules_cache,
-            progress=progress, save_after_step=SAVE_AFTER_EACH_STEP,
+            progress=None, save_after_step=SAVE_AFTER_EACH_STEP,
             output_path=output_path, stop_at_step=STOP_AT_STEP
         )
         if green_cells is None:
             return None
-        
 
-        # 步骤14：cat2覆盖匹配cat6检查（标蓝色）
         green_cells = self._execute_step(
             14, "cat2覆盖匹配cat6检查", self._step_cat2_cover_cat6_match_check,
             sheet_info_list, output_workbook, green_cells, rules_cache=rules_cache,
-            progress=progress, save_after_step=SAVE_AFTER_EACH_STEP,
+            progress=None, save_after_step=SAVE_AFTER_EACH_STEP,
             output_path=output_path, stop_at_step=STOP_AT_STEP
         )
         if green_cells is None:
             return None
-        
+        if progress:
+            progress.update(1)
 
-        # 步骤15：cat6- cat1 包含匹配（标蓝色）
+        # 跨平台步骤8：cat6-cat1包含匹配检查（标蓝色）
         green_cells = self._execute_step(
             15, "cat6- cat1 包含匹配检查", self._step_cat6_cat1_containment_check,
             sheet_info_list, output_workbook, green_cells, rules_cache=rules_cache,
-            progress=progress, save_after_step=SAVE_AFTER_EACH_STEP,
+            progress=None, save_after_step=SAVE_AFTER_EACH_STEP,
             output_path=output_path, stop_at_step=STOP_AT_STEP
         )
         if green_cells is None:
             return None
-        
+        if progress:
+            progress.update(1)
 
-        # 步骤16：平台外覆盖检查（标橙色）
+        # 跨平台步骤9：平台外覆盖检查 + 特殊规则检查（标橙色）
         yellow_cells = self._execute_step(
             16, "平台外覆盖检查", self._step_platform_outside_check,
             sheet_info_list, output_workbook, green_cells, rules_cache=rules_cache,
-            progress=progress, save_after_step=SAVE_AFTER_EACH_STEP,
+            progress=None, save_after_step=SAVE_AFTER_EACH_STEP,
             output_path=output_path, stop_at_step=STOP_AT_STEP
         )
         if yellow_cells is None:
             return None
-        
 
-        # 步骤17：特殊规则检查（标橙色）
         gray_cells = self._execute_step(
             17, "特殊规则检查", self._step_special_rule_check,
             sheet_info_list, output_workbook, green_cells, yellow_cells, rules_cache=rules_cache,
-            progress=progress, save_after_step=SAVE_AFTER_EACH_STEP,
+            progress=None, save_after_step=SAVE_AFTER_EACH_STEP,
             output_path=output_path, stop_at_step=STOP_AT_STEP
         )
         if gray_cells is None:
             return None
-        
+        if progress:
+            progress.update(1)
 
-        # 步骤18：特殊地址段检查（标红色）
+        # 跨平台步骤10：特殊地址段检查 + cat2特殊源地址非平台目的地址检查（标红色）
         yellow_light_cells = self._execute_step(
             18, "特殊地址段检查", self._step_special_address_check,
             sheet_info_list, output_workbook, green_cells, yellow_cells, gray_cells, rules_cache=rules_cache,
-            progress=progress, save_after_step=SAVE_AFTER_EACH_STEP,
+            progress=None, save_after_step=SAVE_AFTER_EACH_STEP,
             output_path=output_path, stop_at_step=STOP_AT_STEP
         )
         if yellow_light_cells is None:
             return None
-        
 
-        # 步骤19：cat2特殊源地址非平台目的地址检查（标红色）
         red_cells = self._execute_step(
             19, "cat2特殊源地址非平台目的地址检查",
             self._step_cat2_special_src_non_platform_dst_check,
             sheet_info_list, output_workbook, green_cells, yellow_cells,
             gray_cells, yellow_light_cells, rules_cache=rules_cache,
-            progress=progress, save_after_step=SAVE_AFTER_EACH_STEP,
+            progress=None, save_after_step=SAVE_AFTER_EACH_STEP,
             output_path=output_path, stop_at_step=STOP_AT_STEP
         )
         if red_cells is None:
             return None
+
+        # 删除不包含规则的access-list 也算入最后一个跨平台步骤的进度
+        self._remove_empty_acls(sheet_info_list, progress=None)
+        if progress:
+            progress.update(1)
         
 
         self.add_result(Level.OK, "所有步骤执行完成")
@@ -5330,7 +5335,11 @@ class ACLCrossCheckTask(BaseTask):
 
         from .TaskBase import BAR_FORMAT, SHOW_PROGRESS
 
-        total_steps = len(task_items) + 18
+        # total_steps 说明（完全按“概念步骤”统计）：
+        # - 基础步骤1-3：3 步（所有Sheet的基础处理完成后一次性+3）
+        # - 同平台步骤1-3：3 步（在提取同平台ACL时分别+1）
+        # - 跨平台步骤1-10：10 步（内部多个细分子步骤合并为10个概念步骤）
+        total_steps = 3 + 3 + 10
         progress = tqdm(
             total=total_steps,
             desc=self.NAME,
@@ -5341,24 +5350,21 @@ class ACLCrossCheckTask(BaseTask):
         ) if SHOW_PROGRESS else None
 
         try:
-            # 处理所有Sheet
+            # 处理所有Sheet（基础步骤1-3）
             sheet_info_list = self._process_all_sheets(task_items, input_workbook, output_workbook, progress)
+            if progress:
+                progress.update(3)  # 基础步骤1-3完成
             
-            # 生成同平台 ACL Excel 文件后直接返回，不执行后续步骤
-            return
+            # 如果当前模式仅执行同平台步骤，可以在此处直接返回
+            # return
 
             # 预构建规则缓存
-            rules_cache = self._build_rules_cache(sheet_info_list, progress)
+            rules_cache = self._build_rules_cache(sheet_info_list, progress=None)
             
-
-            # 执行所有步骤
+            # 执行跨平台步骤1-10（内部按概念步骤更新进度）
             result = self._execute_all_steps(sheet_info_list, output_workbook, rules_cache, progress, output_path)
             if result is None:
                 return
-            
-
-            # 删除不包含规则的access-list
-            self._remove_empty_acls(sheet_info_list, progress)
 
         finally:
             # 先保存输出Excel文件（在关闭进度条之前，避免进度条错误影响保存）
