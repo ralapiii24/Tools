@@ -4161,16 +4161,26 @@ class ACLCrossCheckTask(BaseTask):
 
                 for start_row, end_row in acl_blocks:
                     # 先收集完整的 ACL 块（用于同平台 ACL 提取）
-                    acl_block_lines = []  # 存储当前 ACL 块的所有行
+                    acl_block_lines = []  # 存储当前 ACL 块的所有行（用于输出）
+                    same_platform_acl_block_lines = []  # 存储同平台 ACL 块的行（只包含同平台规则）
                     has_redundant_rule = False  # 标记当前 ACL 块是否包含多余规则
                     has_same_platform_rule = False  # 标记当前 ACL 块是否包含同平台规则（源和目的都在平台网段内）
+                    acl_block_header = None  # 存储 ACL 块定义行（ip access-list ...）
                     
                     # 从start_row到end_row提取ACL配置
                     for row_idx in range(start_row, end_row + 1):
                         source_cell = input_worksheet.cell(row=row_idx, column=original_col)
                         if source_cell.value is not None:
+                            cell_text = str(source_cell.value).strip()
                             # 收集 ACL 块的所有行（包括 ip access-list 定义行）
-                            acl_block_lines.append(str(source_cell.value))
+                            acl_block_lines.append(cell_text)
+                            
+                            # 保存 ACL 块定义行
+                            if "ip access-list" in cell_text.lower():
+                                acl_block_header = cell_text
+                                # 如果是同平台ACL收集，也添加定义行
+                                if (is_cat1 or is_cat6) and platform_networks:
+                                    same_platform_acl_block_lines.append(cell_text)
                             
                             # 复制样式
                             source_font = source_cell.font
@@ -4258,6 +4268,9 @@ class ACLCrossCheckTask(BaseTask):
                                                 is_redundant = True
                                                 redundant_count[output_col] += 1
                                                 has_same_platform_rule = True
+                                                # 收集同平台规则到同平台ACL块
+                                                if (is_cat1 or is_cat6) and platform_networks:
+                                                    same_platform_acl_block_lines.append(cell_text)
                                         else:
                                             # parse_acl失败时，尝试从文本中直接提取IP地址
                                             # 例如：368 permit tcp 10.66.110.0/24 eq 3366 10.66.120.90/32 eq 7080
@@ -4280,6 +4293,9 @@ class ACLCrossCheckTask(BaseTask):
                                                     redundant_count[output_col] += 1
                                                     has_redundant_rule = True
                                                     has_same_platform_rule = True
+                                                    # 收集同平台规则到同平台ACL块
+                                                    if (is_cat1 or is_cat6) and platform_networks:
+                                                        same_platform_acl_block_lines.append(cell_text)
                             
                             # 如果不是多余规则，则添加到写入列表（包括ip access-list行、注释行等）
                             if not is_redundant:
@@ -4290,14 +4306,16 @@ class ACLCrossCheckTask(BaseTask):
                                 current_row += 1
                     
                     # 如果当前 ACL 块包含同平台规则（源和目的都在平台网段内），且是 cat1 或 cat6 设备，则收集到同平台 ACL 数据
-                    # 注意：收集所有包含同平台规则的ACL块，而不仅仅是包含多余规则的ACL块
+                    # 注意：只收集同平台规则，不收集any any规则或其他非同平台规则
                     if has_same_platform_rule and (is_cat1 or is_cat6) and platform_networks:
                         if platform_name not in same_platform_acls:
                             same_platform_acls[platform_name] = {}
                         if device_name not in same_platform_acls[platform_name]:
                             same_platform_acls[platform_name][device_name] = []
-                        # 保存完整的 ACL 块（包括 ip access-list 定义行）
-                        same_platform_acls[platform_name][device_name].append(acl_block_lines)
+                        # 只保存包含同平台规则的ACL块（不包含any any规则和非同平台规则）
+                        # same_platform_acl_block_lines 已经包含了ACL定义行和同平台规则行
+                        if len(same_platform_acl_block_lines) > 1:  # 至少有定义行和一条规则
+                            same_platform_acls[platform_name][device_name].append(same_platform_acl_block_lines)
             
 
             # 写入数据到输出工作表（跳过多余规则，相当于删除）
