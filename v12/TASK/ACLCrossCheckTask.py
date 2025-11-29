@@ -4641,7 +4641,7 @@ class ACLCrossCheckTask(BaseTask):
                 ws.column_dimensions['A'].width = 120.0
                 ws.column_dimensions['B'].width = 120.0
             
-            # 步骤4：在同一Sheet同一列内，不同ACL块之间做反向完全匹配检查，并标记为绿色
+            # 同平台步骤1：在同一Sheet同一列内，不同ACL块之间做反向完全匹配检查，并标记为绿色
             total_pairs = 0
             for (sheet_name, col), rules in reverse_match_rules.items():
                 if len(rules) < 2:
@@ -4686,12 +4686,73 @@ class ACLCrossCheckTask(BaseTask):
             if total_pairs > 0:
                 self.add_result(
                     Level.OK,
-                    f"同平台 ACL 反向完全匹配检查完成：共标记 {total_pairs} 对规则（绿色）"
+                    f"同平台步骤1：反向完全匹配检查完成，共标记 {total_pairs} 对规则（绿色）"
                 )
             else:
                 self.add_result(
                     Level.OK,
-                    "同平台 ACL 反向完全匹配检查完成：未发现反向完全匹配规则"
+                    "同平台步骤1：反向完全匹配检查完成，未发现反向完全匹配规则"
+                )
+            
+            # 同平台步骤2：目的地址为special_network_map标记橙色（仅同Sheet同列，不跨Sheet/列）
+            total_special = 0
+            for (sheet_name, col), rules in reverse_match_rules.items():
+                ws = same_platform_workbook[sheet_name]
+                special_networks = self.SPECIAL_NETWORK_MAP.get(sheet_name, [])
+                if not special_networks:
+                    continue
+                
+                for row, _acl_name, parsed_rule in rules:
+                    if not parsed_rule:
+                        continue
+                    
+                    # 检查目的地址是否在任一特殊网段内
+                    dst_in_special = False
+                    for special_net in special_networks:
+                        try:
+                            if (
+                                parsed_rule.dst.overlaps(special_net)
+                                or parsed_rule.dst.subnet_of(special_net)
+                            ):
+                                dst_in_special = True
+                                break
+                        except (AttributeError, ValueError, TypeError):
+                            continue
+                    
+                    if not dst_in_special:
+                        continue
+                    
+                    cell = ws.cell(row=row, column=col)
+                    # 如果已经是绿色（同平台步骤1标记），则不覆盖
+                    try:
+                        color_str = str(cell.font.color or "").upper()
+                        if "00FF00" in color_str:
+                            continue
+                    except Exception:
+                        pass
+                    
+                    old_font = cell.font or Font()
+                    cell.font = Font(
+                        name=old_font.name,
+                        size=old_font.size,
+                        bold=old_font.bold,
+                        italic=old_font.italic,
+                        vertAlign=old_font.vertAlign,
+                        underline=old_font.underline,
+                        strike=old_font.strike,
+                        color="FFA500",  # 橙色
+                    )
+                    total_special += 1
+            
+            if total_special > 0:
+                self.add_result(
+                    Level.OK,
+                    f"同平台步骤2：目的地址为special_network_map检查完成，共标记 {total_special} 条规则为橙色"
+                )
+            else:
+                self.add_result(
+                    Level.OK,
+                    "同平台步骤2：目的地址为special_network_map检查完成，未发现匹配规则"
                 )
             
             # 保存文件
