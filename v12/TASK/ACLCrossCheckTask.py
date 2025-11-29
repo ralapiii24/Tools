@@ -4163,6 +4163,7 @@ class ACLCrossCheckTask(BaseTask):
                     # 先收集完整的 ACL 块（用于同平台 ACL 提取）
                     acl_block_lines = []  # 存储当前 ACL 块的所有行
                     has_redundant_rule = False  # 标记当前 ACL 块是否包含多余规则
+                    has_same_platform_rule = False  # 标记当前 ACL 块是否包含同平台规则（源和目的都在平台网段内）
                     
                     # 从start_row到end_row提取ACL配置
                     for row_idx in range(start_row, end_row + 1):
@@ -4256,6 +4257,7 @@ class ACLCrossCheckTask(BaseTask):
                                             if src_in_platform and dst_in_platform:
                                                 is_redundant = True
                                                 redundant_count[output_col] += 1
+                                                has_same_platform_rule = True
                                         else:
                                             # parse_acl失败时，尝试从文本中直接提取IP地址
                                             # 例如：368 permit tcp 10.66.110.0/24 eq 3366 10.66.120.90/32 eq 7080
@@ -4277,6 +4279,7 @@ class ACLCrossCheckTask(BaseTask):
                                                     is_redundant = True
                                                     redundant_count[output_col] += 1
                                                     has_redundant_rule = True
+                                                    has_same_platform_rule = True
                             
                             # 如果不是多余规则，则添加到写入列表（包括ip access-list行、注释行等）
                             if not is_redundant:
@@ -4286,8 +4289,9 @@ class ACLCrossCheckTask(BaseTask):
                                 ))
                                 current_row += 1
                     
-                    # 如果当前 ACL 块包含多余规则，且是 cat1 或 cat6 设备，则收集到同平台 ACL 数据
-                    if has_redundant_rule and (is_cat1 or is_cat6) and platform_networks:
+                    # 如果当前 ACL 块包含同平台规则（源和目的都在平台网段内），且是 cat1 或 cat6 设备，则收集到同平台 ACL 数据
+                    # 注意：收集所有包含同平台规则的ACL块，而不仅仅是包含多余规则的ACL块
+                    if has_same_platform_rule and (is_cat1 or is_cat6) and platform_networks:
                         if platform_name not in same_platform_acls:
                             same_platform_acls[platform_name] = {}
                         if device_name not in same_platform_acls[platform_name]:
@@ -4504,68 +4508,31 @@ class ACLCrossCheckTask(BaseTask):
                 )
                 ws = same_platform_workbook.create_sheet(title=sheet_name)
                 
-                # 分别处理cat1和cat6设备，cat1写入第一列，cat6写入第二列
-                cat1_devices = {}  # {device_name: acl_blocks}
-                cat6_devices = {}  # {device_name: acl_blocks}
+                current_row = 1
                 
-                # 分类设备
+                # 为每个设备写入 ACL 块
                 for device_name, acl_blocks in devices.items():
-                    device_name_lower = device_name.lower()
-                    # 判断设备类型：优先检查标识，否则使用模式匹配
-                    if "cat1" in device_name_lower or _is_cat1_device(device_name):
-                        cat1_devices[device_name] = acl_blocks
-                    elif "cat6" in device_name_lower or _is_cat6_device(device_name):
-                        cat6_devices[device_name] = acl_blocks
-                
-                # 分别处理cat1和cat6设备
-                cat1_row = 1
-                cat6_row = 1
-                
-                # 写入cat1设备到第一列
-                for device_name, acl_blocks in cat1_devices.items():
                     # 写入设备名称（作为分隔）
-                    if cat1_row > 1:
+                    if current_row > 1:
                         # 如果不是第一行，添加空行分隔
-                        cat1_row += 1
+                        current_row += 1
                     
-                    device_cell = ws.cell(row=cat1_row, column=1)
+                    device_cell = ws.cell(row=current_row, column=1)
                     device_cell.value = f"# 设备: {device_name}"
-                    device_cell.font = Font()  # 不加粗
-                    cat1_row += 1
+                    device_cell.font = Font(bold=True)
+                    current_row += 1
                     
                     # 写入每个 ACL 块
                     for acl_block_lines in acl_blocks:
                         for line in acl_block_lines:
-                            cell = ws.cell(row=cat1_row, column=1)
+                            cell = ws.cell(row=current_row, column=1)
                             cell.value = line
-                            cat1_row += 1
+                            current_row += 1
                         # ACL 块之间添加空行
-                        cat1_row += 1
-                
-                # 写入cat6设备到第二列
-                for device_name, acl_blocks in cat6_devices.items():
-                    # 写入设备名称（作为分隔）
-                    if cat6_row > 1:
-                        # 如果不是第一行，添加空行分隔
-                        cat6_row += 1
-                    
-                    device_cell = ws.cell(row=cat6_row, column=2)
-                    device_cell.value = f"# 设备: {device_name}"
-                    device_cell.font = Font()  # 不加粗
-                    cat6_row += 1
-                    
-                    # 写入每个 ACL 块
-                    for acl_block_lines in acl_blocks:
-                        for line in acl_block_lines:
-                            cell = ws.cell(row=cat6_row, column=2)
-                            cell.value = line
-                            cat6_row += 1
-                        # ACL 块之间添加空行
-                        cat6_row += 1
+                        current_row += 1
                 
                 # 设置列宽
                 ws.column_dimensions['A'].width = 120.0
-                ws.column_dimensions['B'].width = 120.0
             
             # 保存文件
             same_platform_workbook.save(output_path)
