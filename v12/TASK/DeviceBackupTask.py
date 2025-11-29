@@ -39,7 +39,12 @@ from typing import Optional
 # 导入本地应用
 from .TaskBase import (
     BaseTask, Level, CONFIG, extract_site_from_filename,
-    safe_sheet_name, require_keys
+    safe_sheet_name, require_keys, get_today_str, format_datetime,
+    ensure_output_dir, build_log_path, build_output_path,
+    load_excel_workbook, create_excel_workbook, save_excel_workbook
+)
+from .CiscoBase import (
+    get_device_classification_rules, is_cat1_device, is_cat2_device, is_cat6_device
 )
 
 # 关键设备配置备份任务类：将设备配置备份并输出为Excel格式
@@ -83,7 +88,7 @@ class DeviceBackupTask(BaseTask):
         """
         from openpyxl import Workbook
 
-        self._TODAY = datetime.now().strftime("%Y%m%d")
+        self._TODAY = get_today_str()
         # V10新结构：从 LOG/OxidizedTask/OxidizedTaskBackup/ 读取
         self._IN_DIR = os.path.join(self.LOG_DIR, "OxidizedTask", "OxidizedTaskBackup")
         if not os.path.isdir(self._IN_DIR):
@@ -91,7 +96,7 @@ class DeviceBackupTask(BaseTask):
             return []
 
         # 创建输出目录（如果目录已存在则不报错）
-        os.makedirs(self.OUTPUT_DIR, exist_ok=True)
+        ensure_output_dir(self.OUTPUT_DIR)
         self._XLSX_PATH = os.path.join(
             self.OUTPUT_DIR,
             f"{self._TODAY}-关键设备配置备份输出EXCEL基础任务.xlsx"
@@ -291,7 +296,13 @@ class DeviceBackupTask(BaseTask):
         """
         import re
         FILENAME_LOWER = FILENAME.lower()
+        # 使用CiscoBase中的设备分类规则（cat1和cat2），DeviceBackupTask特有的cat3/cat4/cat5/cat6规则保留在本地
+        BASE_RULES = get_device_classification_rules()
         RULES = DeviceBackupTask._get_device_classification_rules()
+        # 合并规则：优先使用CiscoBase的规则（cat1、cat2、cat6），DeviceBackupTask特有的规则（cat3、cat4、cat5）保留
+        RULES["cat1"] = BASE_RULES["cat1"]
+        RULES["cat2"] = BASE_RULES["cat2"]
+        RULES["cat6"] = BASE_RULES["cat6"]
         
 
         # 遍历所有分类规则

@@ -25,7 +25,7 @@ import re
 import socket
 from dataclasses import dataclass
 from ipaddress import IPv4Address, IPv4Network
-from typing import List, Optional, Set, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 
 # 导入第三方库
 try:
@@ -1137,4 +1137,210 @@ def extract_acl_rules_from_column(worksheet, col: int, start_row: int, end_row: 
     
 
     return ACL_RULES
+
+# ============================================================================
+# 设备分类相关函数
+# ============================================================================
+
+# 获取设备分类规则：返回设备分类规则字典，用于识别不同类型的设备
+def get_device_classification_rules() -> Dict:
+    """获取设备分类规则
+    
+    返回设备分类规则字典，包含cat1、cat2、cat6等设备类型的识别模式
+    
+    Returns:
+        Dict: 设备分类规则字典
+    """
+    return {
+        "cat1": {
+            "name": "N9K核心交换机",
+            "patterns": [
+                # CS + N9K + (01|02|03|04)，兼容连写
+                lambda filenameLower: (("cs" in filenameLower) or re.search(r"\bcs\b", filenameLower)) and 
+                         (("n9k" in filenameLower) or re.search(r"\bn9k\b", filenameLower)) and 
+                         re.search(r"(?:^|[^0-9])0?[1-4](?:[^0-9]|$)", filenameLower),
+                # CS连写模式
+                lambda filenameLower: (
+                    re.search(r"cs0?[1-4]", filenameLower) and
+                    (("n9k" in filenameLower) or re.search(r"\bn9k\b", filenameLower))
+                )
+            ]
+        },
+        "cat2": {
+            "name": "LINKAS接入交换机",
+            "patterns": [
+                # LINK + AS + (01|02)，兼容连写
+                lambda filenameLower: (("link" in filenameLower) or re.search(r"\blink\b", filenameLower)) and 
+                         (("as" in filenameLower) or re.search(r"\bas\b", filenameLower)) and 
+                         re.search(r"(?:^|[^0-9])0?[12](?:[^0-9]|$)", filenameLower),
+                # LINKAS连写模式
+                lambda filenameLower: re.search(r"link[-_]*as0?[12]", filenameLower),
+                # AS连写模式
+                lambda filenameLower: (
+                    (("link" in filenameLower) or re.search(r"\blink\b", filenameLower)) and
+                    re.search(r"as0?[12]", filenameLower)
+                )
+            ]
+        },
+        "cat6": {
+            "name": "OOB-DS交换机",
+            "patterns": [
+                # OOB-DS + (01|02)，支持连写和分隔符
+                # 格式: OOB-DS01, OOB_DS01, OOB-DS02 等
+                lambda filenameLower: (
+                    re.search(r"\boob[-_]?ds0?[12]\b", filenameLower) or  # OOB-DS连写模式（支持-或_分隔符）
+                    (re.search(r"\boob\b", filenameLower) and re.search(r"\bds\b", filenameLower) and 
+                     re.search(r"(?:^|[^0-9])0?[12](?:[^0-9]|$)", filenameLower))  # OOB + DS + 设备编号
+                )
+            ]
+        }
+    }
+
+# 检查文本是否匹配cat1设备：N9K核心交换机（CS + N9K + 01/02/03/04）
+def is_cat1_device(text: str) -> bool:
+    """检查文本是否匹配cat1设备
+    
+    Args:
+        text: 设备名称或文本
+        
+    Returns:
+        bool: 如果匹配cat1设备则返回True
+    """
+    TEXT_LOWER = text.lower()
+    RULES = get_device_classification_rules()
+    for PATTERN_FUNC in RULES["cat1"]["patterns"]:
+        if PATTERN_FUNC(TEXT_LOWER):
+            return True
+    return False
+
+# 检查文本是否匹配cat2设备：LINKAS接入交换机（LINK + AS + 01/02）
+def is_cat2_device(text: str) -> bool:
+    """检查文本是否匹配cat2设备
+    
+    Args:
+        text: 设备名称或文本
+        
+    Returns:
+        bool: 如果匹配cat2设备则返回True
+    """
+    TEXT_LOWER = text.lower()
+    RULES = get_device_classification_rules()
+    for PATTERN_FUNC in RULES["cat2"]["patterns"]:
+        if PATTERN_FUNC(TEXT_LOWER):
+            return True
+    return False
+
+# 检查文本是否匹配cat6设备：OOB-DS交换机（OOB-DS + 01/02）
+def is_cat6_device(text: str) -> bool:
+    """检查文本是否匹配cat6设备
+    
+    Args:
+        text: 设备名称或文本
+        
+    Returns:
+        bool: 如果匹配cat6设备则返回True
+    """
+    TEXT_LOWER = text.lower()
+    RULES = get_device_classification_rules()
+    for PATTERN_FUNC in RULES["cat6"]["patterns"]:
+        if PATTERN_FUNC(TEXT_LOWER):
+            return True
+    return False
+
+# 从设备名称中提取设备序号（01, 02, 03等）：优先匹配设备类型标识符（CS、AS、OOB-DS等）后面的数字，避免匹配站点编号（HX01等）
+def extract_device_number(device_name: str) -> Optional[int]:
+    """从设备名称中提取设备序号
+    
+    优先匹配设备类型标识符（CS、AS、OOB-DS等）后面的数字，避免匹配站点编号（HX01等）
+    
+    Args:
+        device_name: 设备名称
+        
+    Returns:
+        Optional[int]: 设备序号（1-4），如果无法提取则返回None
+    """
+    DEVICE_PATTERNS = [
+        r"(?:cs|as|link[-_]?as|oob[-_]?ds)(?:0?)([1-4])(?:[^0-9]|$)",  # CS01, AS01, Link-As01, OOB-DS01等
+        r"(?:cs|as)(?:0?)([1-4])(?:[^0-9]|$)",  # CS01, AS01等（无连字符）
+        r"(?:oob[-_]?ds)(?:0?)([12])(?:[^0-9]|$)",  # OOB-DS01, OOB-DS02等
+    ]
+    
+    for PATTERN in DEVICE_PATTERNS:
+        MATCH = re.search(PATTERN, device_name.lower())
+        if MATCH:
+            return int(MATCH.group(1))
+    
+    # 如果上述模式都不匹配，使用通用模式（但可能匹配到站点编号）
+    MATCH = re.search(r"(?:^|[^0-9])(0?[1-4])(?:[^0-9]|$)", device_name.lower())
+    if MATCH:
+        return int(MATCH.group(1))
+    return None
+
+# 分析第一行识别设备列：识别cat1/cat2/cat6列，优先检查标识，否则回退到设备名称模式匹配，只导入指定设备编号（cat1:01/03, cat2:01, cat6:全部）
+def analyze_first_row_for_cat1_cat2(worksheet) -> Tuple[List, List, List]:
+    """分析Excel第一行，识别cat1/cat2/cat6列
+    
+    优先检查是否包含cat1/cat2/cat6标识，否则回退到设备名称模式匹配
+    只导入指定设备编号（cat1:01/03, cat2:01, cat6:全部）
+    
+    Args:
+        worksheet: openpyxl Worksheet对象
+        
+    Returns:
+        Tuple[List, List, List]: (cat1_cols, cat2_cols, cat6_cols)
+            cat1_cols: [(col, device_number, device_name), ...]
+            cat2_cols: [(col, device_number, device_name), ...]
+            cat6_cols: [(col, device_number, device_name), ...]
+    """
+    try:
+        from openpyxl.worksheet.worksheet import Worksheet
+    except ImportError:
+        Worksheet = None
+    
+    CAT1_COLS = []  # [(col, device_number, device_name), ...]
+    CAT2_COLS = []  # [(col, device_number, device_name), ...]
+    CAT6_COLS = []  # [(col, device_number, device_name), ...]
+    
+    # 定义允许导入的设备编号（硬编码在代码中）
+    ALLOWED_CAT1_NUMBERS = {1, 3}  # cat1只导入01和03
+    ALLOWED_CAT2_NUMBERS = {1}      # cat2只导入01
+    # cat6不限制（导入所有匹配的设备）
+    
+    for COLUMN in range(1, worksheet.max_column + 1):
+        FIRST_CELL = worksheet.cell(row=1, column=COLUMN).value
+        if FIRST_CELL and isinstance(FIRST_CELL, str):
+            DEVICE_NAME = FIRST_CELL.strip()
+            DEVICE_NAME_LOWER = DEVICE_NAME.lower()
+            
+            # 优先检查是否包含cat1/cat2/cat6标识（不区分大小写）
+            if "cat1" in DEVICE_NAME_LOWER:
+                DEVICE_NUMBER = extract_device_number(DEVICE_NAME)
+                # 只保留允许的设备编号（01和03）
+                if DEVICE_NUMBER in ALLOWED_CAT1_NUMBERS:
+                    CAT1_COLS.append((COLUMN, DEVICE_NUMBER, DEVICE_NAME))
+            elif "cat2" in DEVICE_NAME_LOWER:
+                DEVICE_NUMBER = extract_device_number(DEVICE_NAME)
+                # 只保留允许的设备编号（01）
+                if DEVICE_NUMBER in ALLOWED_CAT2_NUMBERS:
+                    CAT2_COLS.append((COLUMN, DEVICE_NUMBER, DEVICE_NAME))
+            elif "cat6" in DEVICE_NAME_LOWER:
+                DEVICE_NUMBER = extract_device_number(DEVICE_NAME)
+                # cat6不限制，直接添加
+                CAT6_COLS.append((COLUMN, DEVICE_NUMBER, DEVICE_NAME))
+            else:
+                # 回退到设备名称模式匹配
+                DEVICE_NUMBER = extract_device_number(DEVICE_NAME)
+                if is_cat1_device(DEVICE_NAME):
+                    # 只保留允许的设备编号（01和03）
+                    if DEVICE_NUMBER in ALLOWED_CAT1_NUMBERS:
+                        CAT1_COLS.append((COLUMN, DEVICE_NUMBER, DEVICE_NAME))
+                elif is_cat2_device(DEVICE_NAME):
+                    # 只保留允许的设备编号（01）
+                    if DEVICE_NUMBER in ALLOWED_CAT2_NUMBERS:
+                        CAT2_COLS.append((COLUMN, DEVICE_NUMBER, DEVICE_NAME))
+                elif is_cat6_device(DEVICE_NAME):
+                    # cat6不限制，直接添加
+                    CAT6_COLS.append((COLUMN, DEVICE_NUMBER, DEVICE_NAME))
+    
+    return CAT1_COLS, CAT2_COLS, CAT6_COLS
 

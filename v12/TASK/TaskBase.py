@@ -4,6 +4,7 @@
 import base64
 import os
 from dataclasses import dataclass
+from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, Iterable, Optional, Tuple
 
@@ -454,3 +455,123 @@ class BaseTask:
         finally:
             if progress:
                 progress.close()
+
+# ============================================================================
+# 日期处理工具函数
+# ============================================================================
+
+# 获取今天的日期字符串（YYYYMMDD格式）
+def get_today_str() -> str:
+    """获取今天的日期字符串
+    
+    Returns:
+        str: 今天的日期字符串（YYYYMMDD格式），例如"20241129"
+    """
+    return datetime.now().strftime("%Y%m%d")
+
+# 格式化日期时间
+def format_datetime(dt: datetime, fmt: str = "%Y%m%d") -> str:
+    """格式化日期时间
+    
+    Args:
+        dt: 日期时间对象
+        fmt: 格式字符串，默认为"%Y%m%d"
+        
+    Returns:
+        str: 格式化后的日期时间字符串
+    """
+    return dt.strftime(fmt)
+
+# ============================================================================
+# 文件路径处理工具函数
+# ============================================================================
+
+# 确保输出目录存在
+def ensure_output_dir(output_dir: str) -> None:
+    """确保输出目录存在
+    
+    如果目录不存在则创建，已存在则不报错
+    
+    Args:
+        output_dir: 输出目录路径
+    """
+    os.makedirs(output_dir, exist_ok=True)
+
+# 构建LOG目录下的路径
+def build_log_path(*parts: str) -> str:
+    """构建LOG目录下的路径
+    
+    Args:
+        *parts: 路径部分
+        
+    Returns:
+        str: 完整的路径
+    """
+    return os.path.join("LOG", *parts)
+
+# 构建输出文件路径
+def build_output_path(output_dir: str, filename: str) -> str:
+    """构建输出文件路径
+    
+    自动确保输出目录存在
+    
+    Args:
+        output_dir: 输出目录
+        filename: 文件名
+        
+    Returns:
+        str: 完整的输出文件路径
+    """
+    ensure_output_dir(output_dir)
+    return os.path.join(output_dir, filename)
+
+# ============================================================================
+# Excel操作工具函数
+# ============================================================================
+
+# 加载Excel工作簿
+def load_excel_workbook(file_path: str):
+    """加载Excel工作簿
+    
+    Args:
+        file_path: Excel文件路径
+        
+    Returns:
+        Workbook: openpyxl Workbook对象
+        
+    Raises:
+        FileNotFoundError: 如果文件不存在
+        PermissionError: 如果文件被占用
+    """
+    from openpyxl import load_workbook
+    return load_workbook(file_path)
+
+# 创建新的Excel工作簿
+def create_excel_workbook():
+    """创建新的Excel工作簿
+    
+    自动移除默认的"Sheet"工作表
+    
+    Returns:
+        Workbook: openpyxl Workbook对象
+    """
+    from openpyxl import Workbook
+    wb = Workbook()
+    if "Sheet" in wb.sheetnames:
+        wb.remove(wb["Sheet"])
+    return wb
+
+# 保存Excel工作簿
+def save_excel_workbook(workbook, file_path: str) -> None:
+    """保存Excel工作簿
+    
+    自动确保输出目录存在
+    
+    Args:
+        workbook: openpyxl Workbook对象
+        file_path: 保存路径
+    """
+    output_dir = os.path.dirname(file_path)
+    if output_dir:
+        ensure_output_dir(output_dir)
+    workbook.save(file_path)

@@ -50,49 +50,20 @@ from openpyxl import load_workbook
 from openpyxl.styles import Font, PatternFill
 
 # 导入本地应用
-from .TaskBase import BaseTask, Level, CONFIG
+from .TaskBase import (
+    BaseTask, Level, CONFIG, get_today_str, format_datetime,
+    ensure_output_dir, build_log_path, build_output_path,
+    load_excel_workbook, create_excel_workbook, save_excel_workbook
+)
+from .CiscoBase import (
+    parse_acl, service_to_port, ip_and_wildcard_to_network,
+    host_to_network, cidr_to_network, find_acl_blocks_in_column,
+    extract_acl_rules_from_column, is_acl_rule,
+    is_cat1_device, is_cat2_device, analyze_first_row_for_cat1_cat2
+)
 
-# 解析辅助函数
-# 仅数字或系统services数据库解析；失败返回None（视为任意端口）
-def service_to_port(SERVICE_STRING: str) -> Optional[int]:
-    if SERVICE_STRING is None:
-        return None
-    SERVICE_STRING = SERVICE_STRING.strip().lower()
-    if not SERVICE_STRING:
-        return None
-    if SERVICE_STRING.isdigit():
-        PORT_NUMBER = int(SERVICE_STRING)
-        return PORT_NUMBER if 0 <= PORT_NUMBER <= 65535 else None
-    try:
-        return socket.getservbyname(SERVICE_STRING)
-    except Exception:
-        return None
-
-# IOS-XE：ip + wildcard转网络（假设通配位连续）
-def ip_and_wildcard_to_network(IP_STRING: str, WILDCARD_STRING: str) -> Optional[IPv4Network]:
-    try:
-        IP_ADDRESS = int(IPv4Address(IP_STRING))
-        WILDCARD_ADDRESS = int(IPv4Address(WILDCARD_STRING))
-        NETMASK_INTEGER = (~WILDCARD_ADDRESS) & 0xFFFFFFFF
-        PREFIX_LENGTH = 32 - bin(WILDCARD_ADDRESS).count("1")
-        NETWORK_INTEGER = IP_ADDRESS & NETMASK_INTEGER
-        return IPv4Network((IPv4Address(NETWORK_INTEGER), PREFIX_LENGTH), strict=False)
-    except Exception:
-        return None
-
-# 将IP地址转换为/32网络
-def host_to_network(IP_STRING: str) -> Optional[IPv4Network]:
-    try:
-        return IPv4Network(f"{IP_STRING}/32", strict=False)
-    except Exception:
-        return None
-
-# 将CIDR字符串转换为网络对象
-def cidr_to_network(CIDR_STRING: str) -> Optional[IPv4Network]:
-    try:
-        return IPv4Network(CIDR_STRING, strict=False)
-    except Exception:
-        return None
+# 解析辅助函数已迁移到CiscoBase
+# 使用: from .CiscoBase import service_to_port, ip_and_wildcard_to_network, host_to_network, cidr_to_network
 
 # 正则表达式（支持NX-OS/IOS-XE）
 NXOS_RE = re.compile(
@@ -593,119 +564,6 @@ def _is_acl_rule(text: str) -> bool:
     return 'permit' in text or 'deny' in text
 
 
-# 从DeviceBackupTask.py复制的设备分类规则
-# 返回设备分类规则字典，包含分组策略
-def _get_device_classification_rules():
-    return {
-        "cat1": {
-            "name": "N9K核心交换机",
-            "patterns": [
-                # CS + N9K + (01|02|03|04)，兼容连写
-                lambda filenameLower: (("cs" in filenameLower) or re.search(r"\bcs\b", filenameLower)) and 
-
-                         (("n9k" in filenameLower) or re.search(r"\bn9k\b", filenameLower)) and 
-
-                         re.search(r"(?:^|[^0-9])0?[1-4](?:[^0-9]|$)", filenameLower),
-                # CS连写模式
-                lambda filenameLower: (
-                    re.search(r"cs0?[1-4]", filenameLower) and
-                    (("n9k" in filenameLower) or re.search(r"\bn9k\b", filenameLower))
-                )
-            ]
-        },
-        "cat2": {
-            "name": "LINKAS接入交换机",
-            "patterns": [
-                # LINK + AS + (01|02)，兼容连写
-                lambda filenameLower: (("link" in filenameLower) or re.search(r"\blink\b", filenameLower)) and 
-
-                         (("as" in filenameLower) or re.search(r"\bas\b", filenameLower)) and 
-
-                         re.search(r"(?:^|[^0-9])0?[12](?:[^0-9]|$)", filenameLower),
-                # LINKAS连写模式
-                lambda filenameLower: re.search(r"link[-_]*as0?[12]", filenameLower),
-                # AS连写模式
-                lambda filenameLower: (
-                    (("link" in filenameLower) or re.search(r"\blink\b", filenameLower)) and
-                    re.search(r"as0?[12]", filenameLower)
-                )
-            ]
-        }
-    }
-
-# 检查文本是否匹配cat1设备（N9K核心交换机）
-def _is_cat1_device(text: str) -> bool:
-    text_lower = text.lower()
-    rules = _get_device_classification_rules()
-    for pattern_func in rules["cat1"]["patterns"]:
-        if pattern_func(text_lower):
-            return True
-    return False
-
-# 检查文本是否匹配cat2设备（LINKAS接入交换机）
-def _is_cat2_device(text: str) -> bool:
-    text_lower = text.lower()
-    rules = _get_device_classification_rules()
-    for pattern_func in rules["cat2"]["patterns"]:
-        if pattern_func(text_lower):
-            return True
-    return False
-
-# 分析第一行，识别cat1/cat2列
-def analyze_first_row_for_cat1_cat2(worksheet):
-    cat1_cols = []
-    cat2_cols = []
-    
-
-    for COLUMN in range(1, worksheet.max_column + 1):
-        first_cell = worksheet.cell(row=1, column=COLUMN).value
-        if first_cell and isinstance(first_cell, str):
-            if _is_cat1_device(first_cell):
-                cat1_cols.append(COLUMN)
-            elif _is_cat2_device(first_cell):
-                cat2_cols.append(COLUMN)
-    
-
-    return cat1_cols, cat2_cols
-
-# 在指定列中找到ACL块，以ip access-list开始，以包含vty和ip的ip access-list行结束
-def find_acl_blocks_in_column(worksheet, col):
-    acl_blocks = []
-    current_start = None
-    found_vty = False  # 标记是否遇到登录ACL结束标记
-    
-
-    for ROW in range(1, worksheet.max_row + 1):
-        cell_value = worksheet.cell(row=ROW, column=col).value
-        if cell_value and isinstance(cell_value, str):
-            text = str(cell_value).strip()
-            text_lower = text.lower()
-            
-
-            # 业务ACL开始（排除登录ACL）
-            if text.startswith('ip access-list '):
-                # 检查是否是登录ACL结束标记（包含vty和ip，忽略大小写）
-                # 匹配：ip access-list VTY-ACL-IP 或 ip access-list extended vty-access-IP
-                if 'vty' in text_lower and 'ip' in text_lower:
-                    # 登录ACL标记 - 结束当前ACL块，不再处理后续ACL
-                    if current_start is not None:
-                        acl_blocks.append((current_start, ROW - 1))
-                    found_vty = True
-                    break  # 登录ACL及以下的不分析
-                else:
-                    # 业务ACL开始
-                    if current_start is not None:
-                        # 结束上一个ACL块
-                        acl_blocks.append((current_start, ROW - 1))
-                    current_start = ROW
-    
-
-    # 处理最后一个ACL块（只有在没有遇到登录ACL结束标记时才处理）
-    if not found_vty and current_start is not None:
-        acl_blocks.append((current_start, worksheet.max_row))
-    
-
-    return acl_blocks
 
 # 处理单个ACL块内的覆盖关系
 def process_acl_block(worksheet, col, start_row, end_row):
@@ -828,7 +686,7 @@ def process_acl_block(worksheet, col, start_row, end_row):
 # 主处理流程
 # 处理Excel文件，执行ACL覆盖检查（优化版本）
 def process_file(input_path: str, output_path: str) -> Dict[str, Dict[str, int]]:
-    inputWorkbook = load_workbook(input_path)
+    inputWorkbook = load_excel_workbook(input_path)
     per_sheet_stats: Dict[str, Dict[str, int]] = {}  # sheet -> {groups, keep, recycle, total_in_groups}
 
     for worksheet in inputWorkbook.worksheets:
@@ -881,11 +739,11 @@ class ACLDupCheckTask(BaseTask):
     def __init__(self):
         super().__init__("大段覆盖包含明细ACL检查")
         # 固定配置参数
-        today = datetime.now().strftime("%Y%m%d")
+        today = get_today_str()
         # V10新结构：从 LOG/DeviceBackupTask/ 读取（ACL/SourceACL已迁移）
-        self.INPUT_PATH = f"LOG/DeviceBackupTask/{today}-关键设备配置备份输出EXCEL基础任务.xlsx"
+        self.INPUT_PATH = build_log_path("DeviceBackupTask", f"{today}-关键设备配置备份输出EXCEL基础任务.xlsx")
         # V10新结构：直接输出到 LOG/ACLDupCheckTask/
-        self.OUTPUT_DIR = "LOG/ACLDupCheckTask"
+        self.OUTPUT_DIR = build_log_path("ACLDupCheckTask")
         self.NAME = "大段覆盖包含明细ACL检查"
 
     # 返回要处理的Sheet列表
@@ -893,7 +751,7 @@ class ACLDupCheckTask(BaseTask):
         if not os.path.exists(self.INPUT_PATH):
             return []
         try:
-            inputWorkbook = load_workbook(self.INPUT_PATH)
+            inputWorkbook = load_excel_workbook(self.INPUT_PATH)
             sheet_names = [worksheet.title for worksheet in inputWorkbook.worksheets if worksheet.title != 'Report']
             inputWorkbook.close()
             return sheet_names
@@ -904,12 +762,12 @@ class ACLDupCheckTask(BaseTask):
     def run_single(self, sheet_name: str):
         try:
             # 确保输出目录存在
-            os.makedirs(self.OUTPUT_DIR, exist_ok=True)
+            ensure_output_dir(self.OUTPUT_DIR)
 
             # 生成输出文件名
-            today = datetime.now().strftime("%Y%m%d")
+            today = get_today_str()
             output_filename = f"{today}-大段覆盖包含明细ACL检查.xlsx"
-            output_path = os.path.join(self.OUTPUT_DIR, output_filename)
+            output_path = build_output_path(self.OUTPUT_DIR, output_filename)
 
             # 使用原始 acl_dup.py 的处理逻辑
             per_sheet_stats = process_file(self.INPUT_PATH, output_path)
@@ -983,18 +841,18 @@ class ACLDupCheckTask(BaseTask):
     def _generate_final_report(self, all_sheet_stats: Dict[str, Dict[str, int]]) -> None:
         try:
             # 生成输出文件名
-            today = datetime.now().strftime("%Y%m%d")
+            today = get_today_str()
             output_filename = f"{today}-大段覆盖包含明细ACL检查.xlsx"
-            output_path = os.path.join(self.OUTPUT_DIR, output_filename)
+            output_path = build_output_path(self.OUTPUT_DIR, output_filename)
 
             # 创建最终报告 - 使用已经处理过的Excel文件
-            outputWorkbook = load_workbook(output_path)
+            outputWorkbook = load_excel_workbook(output_path)
 
             # 删除 Report 工作表（如果存在）
             if "Report" in outputWorkbook.sheetnames:
                 del outputWorkbook["Report"]
 
-            outputWorkbook.save(output_path)
+            save_excel_workbook(outputWorkbook, output_path)
 
             # 汇总统计（通过Config.yaml的enable_summary_output开关控制，仅输出到LOG文件）
             try:

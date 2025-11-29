@@ -19,7 +19,10 @@ from openpyxl import Workbook
 from tqdm import tqdm
 
 # 导入本地应用
-from .TaskBase import BaseTask, Level, extract_site_from_device, BAR_FORMAT, SHOW_PROGRESS
+from .TaskBase import (
+    BaseTask, Level, extract_site_from_device, BAR_FORMAT, SHOW_PROGRESS,
+    get_today_str, format_datetime, ensure_output_dir, build_log_path, build_output_path
+)
 
 # ASA防火墙主备对比检查任务类：对比ASA防火墙主备设备配置差异并生成Excel报告
 class ASACompareTask(BaseTask):
@@ -51,7 +54,7 @@ class ASACompareTask(BaseTask):
             list: 站点列表
         """
         # 返回站点列表作为items，实现1/N进度显示
-        self._TODAY = datetime.now().strftime("%Y%m%d")
+        self._TODAY = get_today_str()
         # V10新结构：从 LOG/OxidizedTask/OxidizedTaskBackup/ 读取
         LOG_DIR_PATH = os.path.join(self.LOG_DIR, "OxidizedTask", "OxidizedTaskBackup")
         if not os.path.isdir(LOG_DIR_PATH):
@@ -59,7 +62,7 @@ class ASACompareTask(BaseTask):
             return []
 
         # 创建输出目录（如果目录已存在则不报错）
-        os.makedirs(self.OUTPUT_DIR, exist_ok=True)
+        ensure_output_dir(self.OUTPUT_DIR)
 
         # 扫描LOG目录，按站点分组fw01-frp和fw02-frp文件
         self._SITES_DATA = {}
@@ -117,6 +120,8 @@ class ASACompareTask(BaseTask):
         return valid_sites
 
     # 从设备名中提取站点名：解析设备名称获取站点标识，如HX03-FW01-FRP2140-JPIDC -> HX03
+    # 站点提取函数已迁移到TaskBase，直接使用extract_site_from_device
+    # 保留此方法作为兼容性包装
     @staticmethod
     def _extract_site_from_device(device_name: str) -> str:
         """从设备名中提取站点名
@@ -533,7 +538,7 @@ class ASACompareTask(BaseTask):
         # 创建Excel Sheet并添加标题信息
         worksheet = self._WB.create_sheet(title=site)
         worksheet.append([f"ASA防火墙主备对比 - {site}"])
-        worksheet.append([f"对比时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"])
+        worksheet.append([f"对比时间: {format_datetime(datetime.now(), '%Y-%m-%d %H:%M:%S')}"])
         worksheet.append([f"对比范围: interface Port-channel 到 failover 配置段"])
         worksheet.append([f"FW01-FRP文件: {os.path.basename(fw01_path)}"])
         worksheet.append([f"FW02-FRP文件: {os.path.basename(fw02_path)}"])
@@ -659,7 +664,7 @@ class ASACompareTask(BaseTask):
         try:
             # 确保目录存在
             # 创建输出目录（如果目录已存在则不报错）
-            os.makedirs(self.OUTPUT_DIR, exist_ok=True)
+            ensure_output_dir(self.OUTPUT_DIR)
 
             # 验证工作簿
             if not self._validate_workbook():

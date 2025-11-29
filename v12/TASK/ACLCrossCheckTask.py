@@ -80,171 +80,27 @@ from openpyxl.styles.colors import Color
 from openpyxl.utils import get_column_letter
 
 # 导入本地应用
-from .TaskBase import BaseTask, Level, CONFIG
+from .TaskBase import (
+    BaseTask, Level, CONFIG, get_today_str, format_datetime,
+    ensure_output_dir, build_log_path, build_output_path,
+    load_excel_workbook, create_excel_workbook, save_excel_workbook
+)
 from .CiscoBase import (
     ACLRule, parse_acl, service_to_port, 
-
     ip_and_wildcard_to_network, host_to_network, cidr_to_network,
-    find_acl_blocks_in_column, extract_acl_rules_from_column, is_acl_rule
+    find_acl_blocks_in_column, extract_acl_rules_from_column, is_acl_rule,
+    get_device_classification_rules, is_cat1_device, is_cat2_device, is_cat6_device,
+    extract_device_number, analyze_first_row_for_cat1_cat2
 )
 
 # ACL规则判断功能已迁移到CiscoBase
 # 使用: from .CiscoBase import is_acl_rule
 
-# 从DeviceBackupTask.py复制的设备分类规则：返回设备分类规则字典，包含分组策略
-def _get_device_classification_rules():
-    return {
-        "cat1": {
-            "name": "N9K核心交换机",
-            "patterns": [
-                # CS + N9K + (01|02|03|04)，兼容连写
-                lambda filenameLower: (("cs" in filenameLower) or re.search(r"\bcs\b", filenameLower)) and 
+# 设备分类相关函数已迁移到CiscoBase
+# 使用: from .CiscoBase import get_device_classification_rules, is_cat1_device, is_cat2_device, is_cat6_device, extract_device_number, analyze_first_row_for_cat1_cat2
 
-                         (("n9k" in filenameLower) or re.search(r"\bn9k\b", filenameLower)) and 
-
-                         re.search(r"(?:^|[^0-9])0?[1-4](?:[^0-9]|$)", filenameLower),
-                # CS连写模式
-                lambda filenameLower: (
-                    re.search(r"cs0?[1-4]", filenameLower) and
-                    (("n9k" in filenameLower) or re.search(r"\bn9k\b", filenameLower))
-                )
-            ]
-        },
-        "cat2": {
-            "name": "LINKAS接入交换机",
-            "patterns": [
-                # LINK + AS + (01|02)，兼容连写
-                lambda filenameLower: (("link" in filenameLower) or re.search(r"\blink\b", filenameLower)) and 
-
-                         (("as" in filenameLower) or re.search(r"\bas\b", filenameLower)) and 
-
-                         re.search(r"(?:^|[^0-9])0?[12](?:[^0-9]|$)", filenameLower),
-                # LINKAS连写模式
-                lambda filenameLower: re.search(r"link[-_]*as0?[12]", filenameLower),
-                # AS连写模式
-                lambda filenameLower: (
-                    (("link" in filenameLower) or re.search(r"\blink\b", filenameLower)) and
-                    re.search(r"as0?[12]", filenameLower)
-                )
-            ]
-        },
-        "cat6": {
-            "name": "OOB-DS交换机",
-            "patterns": [
-                # OOB-DS + (01|02)，支持连写和分隔符
-                # 格式: OOB-DS01, OOB_DS01, OOB-DS02 等
-                lambda filenameLower: (
-                    re.search(r"\boob[-_]?ds0?[12]\b", filenameLower) or  # OOB-DS连写模式（支持-或_分隔符）
-                    (re.search(r"\boob\b", filenameLower) and re.search(r"\bds\b", filenameLower) and 
-
-                     re.search(r"(?:^|[^0-9])0?[12](?:[^0-9]|$)", filenameLower))  # OOB + DS + 设备编号
-                )
-            ]
-        }
-    }
-
-# 检查文本是否匹配cat1设备：N9K核心交换机（CS + N9K + 01/02/03/04）
-def _is_cat1_device(text: str) -> bool:
-    TEXT_LOWER = text.lower()
-    RULES = _get_device_classification_rules()
-    for PATTERN_FUNC in RULES["cat1"]["patterns"]:
-        if PATTERN_FUNC(TEXT_LOWER):
-            return True
-    return False
-
-# 检查文本是否匹配cat2设备：LINKAS接入交换机（LINK + AS + 01/02）
-def _is_cat2_device(text: str) -> bool:
-    TEXT_LOWER = text.lower()
-    RULES = _get_device_classification_rules()
-    for PATTERN_FUNC in RULES["cat2"]["patterns"]:
-        if PATTERN_FUNC(TEXT_LOWER):
-            return True
-    return False
-
-# 检查文本是否匹配cat6设备：OOB-DS交换机（OOB-DS + 01/02）
-def _is_cat6_device(text: str) -> bool:
-    TEXT_LOWER = text.lower()
-    RULES = _get_device_classification_rules()
-    for PATTERN_FUNC in RULES["cat6"]["patterns"]:
-        if PATTERN_FUNC(TEXT_LOWER):
-            return True
-    return False
-
-# 从设备名称中提取设备序号（01, 02, 03等）：优先匹配设备类型标识符（CS、AS、OOB-DS等）后面的数字，避免匹配站点编号（HX01等）
-def _extract_device_number(device_name: str) -> Optional[int]:
-    # 从设备名称中提取设备序号（01, 02, 03等）：优先匹配设备类型标识符（CS、AS、OOB-DS等）后面的数字，避免匹配站点编号（HX01等）
-    # 匹配模式：CS/AS/Link-As/OOB-DS等 + 数字（01-04）
-    DEVICE_PATTERNS = [
-        r"(?:cs|as|link[-_]?as|oob[-_]?ds)(?:0?)([1-4])(?:[^0-9]|$)",  # CS01, AS01, Link-As01, OOB-DS01等
-        r"(?:cs|as)(?:0?)([1-4])(?:[^0-9]|$)",  # CS01, AS01等（无连字符）
-        r"(?:oob[-_]?ds)(?:0?)([12])(?:[^0-9]|$)",  # OOB-DS01, OOB-DS02等
-    ]
-    
-
-    for PATTERN in DEVICE_PATTERNS:
-        MATCH = re.search(PATTERN, device_name.lower())
-        if MATCH:
-            return int(MATCH.group(1))
-    
-
-    # 如果上述模式都不匹配，使用通用模式（但可能匹配到站点编号）
-    MATCH = re.search(r"(?:^|[^0-9])(0?[1-4])(?:[^0-9]|$)", device_name.lower())
-    if MATCH:
-        return int(MATCH.group(1))
-    return None
-
-# 分析第一行识别设备列：识别cat1/cat2/cat6列，优先检查标识，否则回退到设备名称模式匹配，只导入指定设备编号（cat1:01/03, cat2:01, cat6:全部）
-def analyze_first_row_for_cat1_cat2(worksheet):
-    CAT1_COLS = []  # [(col, device_number, device_name), ...]
-    CAT2_COLS = []  # [(col, device_number, device_name), ...]
-    CAT6_COLS = []  # [(col, device_number, device_name), ...]
-    
-
-    # 定义允许导入的设备编号（硬编码在代码中）
-    ALLOWED_CAT1_NUMBERS = {1, 3}  # cat1只导入01和03
-    ALLOWED_CAT2_NUMBERS = {1}      # cat2只导入01
-    # cat6不限制（导入所有匹配的设备）
-    
-
-    for COLUMN in range(1, worksheet.max_column + 1):
-        FIRST_CELL = worksheet.cell(row=1, column=COLUMN).value
-        if FIRST_CELL and isinstance(FIRST_CELL, str):
-            DEVICE_NAME = FIRST_CELL.strip()
-            DEVICE_NAME_LOWER = DEVICE_NAME.lower()
-            
-
-            # 优先检查是否包含cat1/cat2/cat6标识（不区分大小写）
-            if "cat1" in DEVICE_NAME_LOWER:
-                DEVICE_NUMBER = _extract_device_number(DEVICE_NAME)
-                # 只保留允许的设备编号（01和03）
-                if DEVICE_NUMBER in ALLOWED_CAT1_NUMBERS:
-                    CAT1_COLS.append((COLUMN, DEVICE_NUMBER, DEVICE_NAME))
-            elif "cat2" in DEVICE_NAME_LOWER:
-                DEVICE_NUMBER = _extract_device_number(DEVICE_NAME)
-                # 只保留允许的设备编号（01）
-                if DEVICE_NUMBER in ALLOWED_CAT2_NUMBERS:
-                    CAT2_COLS.append((COLUMN, DEVICE_NUMBER, DEVICE_NAME))
-            elif "cat6" in DEVICE_NAME_LOWER:
-                DEVICE_NUMBER = _extract_device_number(DEVICE_NAME)
-                # cat6不限制，直接添加
-                CAT6_COLS.append((COLUMN, DEVICE_NUMBER, DEVICE_NAME))
-            else:
-                # 回退到设备名称模式匹配
-                DEVICE_NUMBER = _extract_device_number(DEVICE_NAME)
-                if _is_cat1_device(DEVICE_NAME):
-                    # 只保留允许的设备编号（01和03）
-                    if DEVICE_NUMBER in ALLOWED_CAT1_NUMBERS:
-                        CAT1_COLS.append((COLUMN, DEVICE_NUMBER, DEVICE_NAME))
-                elif _is_cat2_device(DEVICE_NAME):
-                    # 只保留允许的设备编号（01）
-                    if DEVICE_NUMBER in ALLOWED_CAT2_NUMBERS:
-                        CAT2_COLS.append((COLUMN, DEVICE_NUMBER, DEVICE_NAME))
-                elif _is_cat6_device(DEVICE_NAME):
-                    # cat6不限制，直接添加
-                    CAT6_COLS.append((COLUMN, DEVICE_NUMBER, DEVICE_NAME))
-    
-
-    return CAT1_COLS, CAT2_COLS, CAT6_COLS
+# 以下函数定义已删除，改用CiscoBase中的版本
+# 所有设备分类相关函数已迁移到CiscoBase，直接使用导入的函数即可
 
 # ACL定界功能已迁移到CiscoBase
 # 使用: from .CiscoBase import find_acl_blocks_in_column, extract_acl_rules_from_column
@@ -954,13 +810,13 @@ class ACLCrossCheckTask(BaseTask):
     def __init__(self):
         super().__init__("N9K&LINKAS ACL交叉检查")
         # 固定配置参数
-        TODAY = datetime.now().strftime("%Y%m%d")
+        TODAY = get_today_str()
         # 从 LOG/DeviceBackupTask/ 读取
-        self.INPUT_PATH = os.path.join("LOG", "DeviceBackupTask", f"{TODAY}-关键设备配置备份输出EXCEL基础任务.xlsx")
+        self.INPUT_PATH = build_log_path("DeviceBackupTask", f"{TODAY}-关键设备配置备份输出EXCEL基础任务.xlsx")
         
 
         # 输出到 LOG/ACLCrossCheckTask/
-        self.OUTPUT_DIR = os.path.join("LOG", "ACLCrossCheckTask")
+        self.OUTPUT_DIR = build_log_path("ACLCrossCheckTask")
         self.NAME = "N9K&LINKAS ACL交叉检查"
 
     # 返回要处理的Sheet列表
@@ -1235,7 +1091,7 @@ class ACLCrossCheckTask(BaseTask):
         
 
         if save_after_step and output_path:
-            output_workbook.save(output_path)
+            save_excel_workbook(output_workbook, output_path)
         
 
         # 根据结果类型生成完成消息
@@ -4526,9 +4382,9 @@ class ACLCrossCheckTask(BaseTask):
         """
         try:
             # 生成输出文件名
-            today = datetime.now().strftime("%Y%m%d")
+            today = get_today_str()
             output_filename = f"{today}-同平台N9K ACL检查.xlsx"
-            output_path = os.path.join(self.OUTPUT_DIR, output_filename)
+            output_path = build_output_path(self.OUTPUT_DIR, output_filename)
             
             # 创建新的工作簿
             same_platform_workbook = Workbook()
@@ -4558,8 +4414,8 @@ class ACLCrossCheckTask(BaseTask):
                 cat6_devices = {}  # {device_name: [acl_blocks, ...]}
                 
                 for device_name, acl_blocks in devices.items():
-                    if _is_cat1_device(device_name):
-                        device_number = _extract_device_number(device_name)
+                    if is_cat1_device(device_name):
+                        device_number = extract_device_number(device_name)
                         if device_number == 1:
                             cat1_devices_01[device_name] = acl_blocks
                         elif device_number == 3:
@@ -4843,10 +4699,10 @@ class ACLCrossCheckTask(BaseTask):
                                 device_name = str(cell.value).strip()
                                 if device_name and len(device_name) > 10:  # 设备名称通常较长
                                     first_row_with_value = row
-                                    if _is_cat1_device(device_name):
+                                    if is_cat1_device(device_name):
                                         if col not in cat1_cols:
                                             cat1_cols.append(col)
-                                    elif _is_cat6_device(device_name):
+                                    elif is_cat6_device(device_name):
                                         if cat6_col is None:
                                             cat6_col = col
                                     break
@@ -4910,7 +4766,7 @@ class ACLCrossCheckTask(BaseTask):
                 progress.update(1)
             
             # 保存文件
-            same_platform_workbook.save(output_path)
+            save_excel_workbook(same_platform_workbook, output_path)
             self.add_result(
                 Level.OK,
                 f"同平台 ACL 提取完成：已保存到 {output_path}"
@@ -5400,24 +5256,22 @@ class ACLCrossCheckTask(BaseTask):
             return
 
         # 确保输出目录存在
-        os.makedirs(self.OUTPUT_DIR, exist_ok=True)
+        ensure_output_dir(self.OUTPUT_DIR)
 
         # 生成输出文件名
-        today = datetime.now().strftime("%Y%m%d")
+        today = get_today_str()
         output_filename = f"{today}-跨平台N9K&LINKAS&OOB ACL交叉检查.xlsx"
-        output_path = os.path.join(self.OUTPUT_DIR, output_filename)
+        output_path = build_output_path(self.OUTPUT_DIR, output_filename)
 
         # 打开输入Excel文件
         try:
-            input_workbook = load_workbook(self.INPUT_PATH)
+            input_workbook = load_excel_workbook(self.INPUT_PATH)
         except (FileNotFoundError, PermissionError, IOError, OSError, ValueError) as EXCEPTION:
             self.add_result(Level.ERROR, f"无法打开输入文件 {self.INPUT_PATH}: {EXCEPTION}")
             return
 
         # 创建输出Excel工作簿
-        output_workbook = Workbook()
-        if "Sheet" in output_workbook.sheetnames:
-            output_workbook.remove(output_workbook["Sheet"])
+        output_workbook = create_excel_workbook()
 
         # 使用父类的进度条处理
         from tqdm import tqdm
@@ -5458,7 +5312,7 @@ class ACLCrossCheckTask(BaseTask):
         finally:
             # 先保存输出Excel文件（在关闭进度条之前，避免进度条错误影响保存）
             try:
-                output_workbook.save(output_path)
+                save_excel_workbook(output_workbook, output_path)
                 self.add_result(Level.OK, f"输出文件已保存: {output_path}")
             except (PermissionError, IOError, OSError, ValueError) as EXCEPTION:
                 self.add_result(Level.ERROR, f"保存输出文件失败: {EXCEPTION}")

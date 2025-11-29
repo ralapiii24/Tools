@@ -22,7 +22,10 @@ from datetime import datetime
 # (无第三方库依赖)
 
 # 导入本地应用
-from .TaskBase import BaseTask, Level, extract_site_from_device, CONFIG
+from .TaskBase import (
+    BaseTask, Level, extract_site_from_device, CONFIG,
+    get_today_str, format_datetime, ensure_output_dir, build_log_path, build_output_path
+)
 
 # ASA临时出网地址检查任务类：检查ASA防火墙中临时出网地址配置
 class ASATempnetworkCheckTask(BaseTask):
@@ -40,8 +43,8 @@ class ASATempnetworkCheckTask(BaseTask):
         SETTINGS = CONFIG.get("settings", {})
         self.LOG_DIR = SETTINGS.get("log_dir", "LOG")
         # V10新结构：直接输出到 LOG/ASATempnetworkCheckTask/
-        self.OUTPUT_DIR = os.path.join(self.LOG_DIR, "ASATempnetworkCheckTask")
-        self.LOG_DIR_PATH = os.path.join(self.LOG_DIR, "OxidizedTask", "OxidizedTaskBackup")
+        self.OUTPUT_DIR = build_log_path("ASATempnetworkCheckTask")
+        self.LOG_DIR_PATH = build_log_path("OxidizedTask", "OxidizedTaskBackup")
         self._TODAY = None
         self._DEFAULT_IP = "1.1.1.1"  # 默认配置IP，忽略
         self._OBJECT_GROUP_NAME = "ServTemp-To-Internet"  # 要检查的对象组名称
@@ -57,7 +60,7 @@ class ASATempnetworkCheckTask(BaseTask):
         Returns:
             list: 站点列表，每个元素为(site, file_path, device_name)元组
         """
-        self._TODAY = datetime.now().strftime("%Y%m%d")
+        self._TODAY = get_today_str()
         
 
         if not os.path.isdir(self.LOG_DIR_PATH):

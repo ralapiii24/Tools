@@ -47,7 +47,14 @@ import xlsxwriter
 from tqdm import tqdm
 
 # 导入本地应用
-from .TaskBase import BaseTask, Level, CONFIG, safe_sheet_name
+from .TaskBase import (
+    BaseTask, Level, CONFIG, safe_sheet_name, get_today_str, format_datetime,
+    ensure_output_dir, build_log_path, build_output_path,
+    load_excel_workbook, create_excel_workbook, save_excel_workbook
+)
+from .CiscoBase import (
+    parse_acl, find_acl_blocks_in_column, extract_acl_rules_from_column, is_acl_rule
+)
 
 # 解析ACL正则（复用ACLDup思想，提取必要子集）：支持 NXOS/IOS-XE/ASA，any/CIDR/IP+wildcard，端口eq/range与行尾log均可忽略
 NXOS_RE = re.compile(r"""
@@ -422,45 +429,8 @@ def _is_acl_rule(text: str) -> bool:
     # 只处理包含permit/deny的规则
     return 'permit' in text or 'deny' in text
 
-# 在指定列中找到ACL块（参考ACLDupCheckTask）
-# 在指定列中找到ACL块，以ip access-list开始，以包含vty和ip的ip access-list行结束
-def find_acl_blocks_in_column(worksheet, col):
-    acl_blocks = []
-    current_start = None
-    found_vty = False  # 标记是否遇到登录ACL结束标记
-    
-
-    for ROW in range(1, worksheet.max_row + 1):
-        cell_value = worksheet.cell(row=ROW, column=col).value
-        if cell_value and isinstance(cell_value, str):
-            text = str(cell_value).strip()
-            text_lower = text.lower()
-            
-
-            # 业务ACL开始（排除登录ACL）
-            if text.startswith('ip access-list '):
-                # 检查是否是登录ACL结束标记（包含vty和ip，忽略大小写）
-                # 匹配：ip access-list VTY-ACL-IP 或 ip access-list extended vty-access-IP
-                if 'vty' in text_lower and 'ip' in text_lower:
-                    # 登录ACL标记 - 结束当前ACL块，不再处理后续ACL
-                    if current_start is not None:
-                        acl_blocks.append((current_start, ROW - 1))
-                    found_vty = True
-                    break  # 登录ACL及以下的不分析
-                else:
-                    # 业务ACL开始
-                    if current_start is not None:
-                        # 结束上一个ACL块
-                        acl_blocks.append((current_start, ROW - 1))
-                    current_start = ROW
-    
-
-    # 处理最后一个ACL块（只有在没有遇到登录ACL结束标记时才处理）
-    if not found_vty and current_start is not None:
-        acl_blocks.append((current_start, worksheet.max_row))
-    
-
-    return acl_blocks
+# ACL定界功能已迁移到CiscoBase
+# 使用: from .CiscoBase import find_acl_blocks_in_column, extract_acl_rules_from_column
 
 
 # Unicode标记方案的核心函数
@@ -742,7 +712,7 @@ class ACLArpCheckTask(BaseTask):
         if not os.path.exists(self.INPUT_PATH):
             return []
         try:
-            inputWorkbook = load_workbook(self.INPUT_PATH)
+            inputWorkbook = load_excel_workbook(self.INPUT_PATH)
             sheet_names = [
                 inputWorksheet.title
                 for inputWorksheet in inputWorkbook.worksheets
@@ -789,8 +759,8 @@ class ACLArpCheckTask(BaseTask):
             # 确保输出目录存在
             os.makedirs(self.OUTPUT_DIR, exist_ok=True)
             # 确保并清空脚本固定输出目录（每次运行前清空）
-            config_dir = os.path.join("LOG", "ACLArpCheckTask", "ConfigureOutput")
-            os.makedirs(config_dir, exist_ok=True)
+            config_dir = build_log_path("ACLArpCheckTask", "ConfigureOutput")
+            ensure_output_dir(config_dir)
             for _name in os.listdir(config_dir):
                 _path = os.path.join(config_dir, _name)
                 if os.path.isfile(_path):
@@ -801,7 +771,7 @@ class ACLArpCheckTask(BaseTask):
             
 
             # 生成输出文件名（覆盖原文件）
-            output_filename = f"{datetime.now().strftime('%Y%m%d')}-ACL无ARP匹配检查.xlsx"
+            output_filename = f"{get_today_str()}-ACL无ARP匹配检查.xlsx"
             output_path = os.path.join(self.OUTPUT_DIR, output_filename)
             
 
@@ -908,7 +878,7 @@ class ACLArpCheckTask(BaseTask):
         colored_rules: Dict[str, List[Dict]] = {}  # 存储标色的规则信息
 
         # 读取原始文件
-        inputWorkbook = load_workbook(input_path)
+        inputWorkbook = load_excel_workbook(input_path)
         
 
         for inputWorksheet in inputWorkbook.worksheets:
@@ -1025,14 +995,14 @@ class ACLArpCheckTask(BaseTask):
     def _generate_operation_scripts(self, input_path: str, per_sheet_stats: Dict[str, Dict[str, int]]) -> None:
         try:
             # 生成当日日期前缀，文件名保留日期
-            date_str = datetime.now().strftime("%Y%m%d")
+            date_str = get_today_str()
             # V10新结构（调整）：脚本固定输出至 LOG/ACLArpCheckTask/ConfigureOutput（不再使用日期目录）
-            config_dir = os.path.join("LOG", "ACLArpCheckTask", "ConfigureOutput")
-            os.makedirs(config_dir, exist_ok=True)
+            config_dir = build_log_path("ACLArpCheckTask", "ConfigureOutput")
+            ensure_output_dir(config_dir)
             
 
             # 读取原始Excel文件
-            inputWorkbook = load_workbook(input_path)
+            inputWorkbook = load_excel_workbook(input_path)
             
 
             # 遍历所有工作表，只处理有标色的工作表
@@ -1065,7 +1035,7 @@ class ACLArpCheckTask(BaseTask):
                     
 
                     # 写入文件头
-                    timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                    timestamp = format_datetime(datetime.now(), '%Y-%m-%d %H:%M:%S')
                     operationLogFile.write(
                         f"# {sheet_name}操作脚本 - {timestamp}\n"
                     )
@@ -1075,7 +1045,7 @@ class ACLArpCheckTask(BaseTask):
                     )
                     
 
-                    rollbackLogFile.write(f"# {sheet_name}回退脚本 - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+                    rollbackLogFile.write(f"# {sheet_name}回退脚本 - {format_datetime(datetime.now(), '%Y-%m-%d %H:%M:%S')}\n")
                     rollbackLogFile.write(f"# 统计: 红色标记={stats['red']}, 橙色标记={stats['yellow']}, 总计={stats['total']}\n\n")
                     
 
