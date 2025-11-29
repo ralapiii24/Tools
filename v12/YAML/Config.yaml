@@ -227,7 +227,7 @@ ESN9KLOGInspectTask:
   index_pattern: '*-n9k-*-*'  # 索引模式匹配
   time_gte: now-3d            # 时间范围开始(3天前)
   time_lt: now                # 时间范围结束(现在)
- 
+
 # ACL重复检查任务 - ACLDupCheckTask调用
 ACLDupCheckTask:
   enable_summary_output: false                           # 是否输出汇总统计（false=不输出，true=输出到LOG文件）
