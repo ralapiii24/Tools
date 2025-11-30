@@ -528,13 +528,13 @@ def run_inspection_tasks(specified_tasks: Optional[List[str]] = None):
         REPORT.write("启用的任务:\n")
         if ENABLED_TASKS:
             for TASK in ENABLED_TASKS:
-                REPORT.write(f"{TASK_NAMES.get(TASK, TASK)}\n")
+                REPORT.write(f"{TASK_DISPLAY_NAMES.get(TASK, TASK)}\n")
         else:
             REPORT.write("无\n")
         REPORT.write("禁用的任务:\n")
         if DISABLED_TASKS:
             for TASK in DISABLED_TASKS:
-                REPORT.write(f"{TASK_NAMES.get(TASK, TASK)}\n")
+                REPORT.write(f"{TASK_DISPLAY_NAMES.get(TASK, TASK)}\n")
         else:
             REPORT.write("无\n")
         REPORT.write(f"本次巡检执行任务数: {len(TASKS)}\n\n")
