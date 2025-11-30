@@ -647,8 +647,8 @@ def process_file(input_path: str, output_path: str) -> Dict[str, Dict[str, int]]
         recycle_count = 0    # 默认字体（可回收）
         total_in_groups = 0  # 参与覆盖组的规则总数
 
-        # 1. 分析第一行，识别cat1/cat2列
-        cat1_cols, cat2_cols = analyze_first_row_for_cat1_cat2(worksheet)
+        # 1. 分析第一行，识别cat1/cat2/cat6列
+        cat1_cols, cat2_cols, cat6_cols = analyze_first_row_for_cat1_cat2(worksheet)
         target_cols = cat1_cols + cat2_cols
 
 

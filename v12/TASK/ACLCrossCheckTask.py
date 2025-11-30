@@ -4892,7 +4892,7 @@ class ACLCrossCheckTask(BaseTask):
                             cat1_devices_01[device_name] = acl_blocks
                         elif device_number == 3:
                             cat1_devices_03[device_name] = acl_blocks
-                    elif _is_cat6_device(device_name):
+                    elif is_cat6_device(device_name):
                         cat6_devices[device_name] = acl_blocks
 
                 # 写入 cat1 设备（01设备写入第1列，03设备写入第2列）
