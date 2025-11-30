@@ -3,9 +3,16 @@
 # 技术栈:openpyxl、正则表达式、difflib
 # 目标:对比主备防火墙配置差异，生成带颜色编码的Excel报告
 #
-# 工作流程包括:扫描LOG目录查找设备文件，提取interface Port-channel到failover的配置段，对比算法过滤重新排序差异，为缩进行显示父级配置，生成带颜色编码的Excel报告
-# 生成以日期命名的Excel文件，每个HX站点对应一个Sheet，包含站点信息、配置差异详情、差异统计和配置对比结果，为缩进行的配置显示父级配置
-# 将对比结果填充到Excel中，包括内容不同的配置行、仅在FW01-FRP中存在的配置、仅在FW02-FRP中存在的配置，并添加统计信息
+# 处理逻辑:
+# - 扫描LOG目录查找设备文件，按站点分组fw01-frp和fw02-frp配置文件
+# - 提取interface Port-channel到failover的配置段（包含相关的object配置）
+# - 使用SequenceMatcher对比算法识别差异（内容不同的配置行、仅在FW01-FRP中存在的配置、仅在FW02-FRP中存在的配置）
+# - 为缩进行显示父级配置
+# - 生成带颜色编码的Excel报告（差异行用红色标记）
+#
+# 输出文件结构:
+# - 生成以日期命名的Excel文件，每个站点对应一个Sheet
+# - 每个Sheet包含：站点信息（站点名、对比时间、对比范围、文件路径）、配置差异详情、差异统计、配置对比结果
 #
 # 输入文件:LOG/OxidizedTask/OxidizedTaskBackup/（V10新结构：从LOG/日期/OxidizedTaskBackup迁移）
 # 输出文件:LOG/ASACompareTask/{日期}-ASA防火墙主备对比检查.xlsx（V10新结构：从ACL/ASACompareTask迁移）
@@ -27,7 +34,7 @@ from .TaskBase import (
 # ASA防火墙主备对比检查任务类：对比ASA防火墙主备设备配置差异并生成Excel报告
 class ASACompareTask(BaseTask):
     """ASA防火墙主备对比检查任务
-    
+
 
     对比主备防火墙配置差异，生成带颜色编码的Excel报告
     """
@@ -45,10 +52,10 @@ class ASACompareTask(BaseTask):
     # 扫描LOG目录获取站点列表：按站点分组fw01-frp和fw02-frp配置文件
     def items(self):
         """扫描LOG目录获取站点列表
-        
+
 
         按站点分组fw01-frp和fw02-frp配置文件
-        
+
 
         Returns:
             list: 站点列表
@@ -125,11 +132,11 @@ class ASACompareTask(BaseTask):
     @staticmethod
     def _extract_site_from_device(device_name: str) -> str:
         """从设备名中提取站点名
-        
+
 
         Args:
             device_name: 设备名称
-            
+
 
         Returns:
             str: 站点名
@@ -140,11 +147,11 @@ class ASACompareTask(BaseTask):
     @staticmethod
     def _extract_config_section(file_path: str) -> list:
         """从配置文件中提取interface Port-channel到failover的配置段
-        
+
 
         Args:
             file_path: 配置文件路径
-            
+
 
         Returns:
             list: 配置行列表
@@ -193,8 +200,8 @@ class ASACompareTask(BaseTask):
                 next_line_index = lineIndex + 1
                 # 提取缩进的子配置行
                 while (next_line_index < len(lines) and
-                       (lines[next_line_index].startswith(' ') or
-                        lines[next_line_index].startswith('\t'))):
+                        (lines[next_line_index].startswith(' ') or
+                            lines[next_line_index].startswith('\t'))):
                     object_lines.append(lines[next_line_index])
                     next_line_index += 1
                 # 添加空行分隔
@@ -208,9 +215,12 @@ class ASACompareTask(BaseTask):
         return config_section
 
     # 处理正常对比情况
-    def _handle_normal_comparison(self, worksheet, site: str, fw01_content: list, fw02_content: list):
+    def _handle_normal_comparison(
+            self, worksheet, site: str, fw01_content: list,
+            fw02_content: list
+    ):
         """处理正常对比情况
-        
+
 
         Args:
             worksheet: Excel工作表对象
@@ -227,7 +237,11 @@ class ASACompareTask(BaseTask):
             missing_device = "FW01-FRP" if not fw01_content else "FW02-FRP"
             msg = f"配置对比结果: {missing_device} 无interface Port-channel到failover配置段"
             worksheet.append([msg, msg])
-            self.add_result(Level.WARN, f"站点 {site} {missing_device} 无interface Port-channel到failover配置段")
+            self.add_result(
+                Level.WARN,
+                f"站点 {site} {missing_device} "
+                f"无interface Port-channel到failover配置段"
+            )
             return
 
         # 使用简化的对比方法
@@ -251,15 +265,15 @@ class ASACompareTask(BaseTask):
     @staticmethod
     def _simple_comparison(fw01_content: list, fw02_content: list) -> dict:
         """简单对比方法
-        
+
 
         优化的对比方法，只显示真正的差异
-        
+
 
         Args:
             fw01_content: FW01配置内容
             fw02_content: FW02配置内容
-            
+
 
         Returns:
             dict: 对比结果字典
@@ -284,7 +298,8 @@ class ASACompareTask(BaseTask):
             elif TAG == 'replace':
                 # 内容不同的行
                 for content_index in range(i1, i2):
-                    if content_index < len(fw01_content) and (j1 + content_index - i1) < len(fw02_content):
+                    if (content_index < len(fw01_content) and
+                            (j1 + content_index - i1) < len(fw02_content)):
                         different_lines.append({
                             'fw01': fw01_content[content_index],
                             'fw02': fw02_content[j1 + content_index - i1]
@@ -453,7 +468,7 @@ class ASACompareTask(BaseTask):
     # 添加简化的统计信息和结果
     def _add_simple_statistics_and_result(self, worksheet, site: str, comparison_result: dict):
         """添加简化的统计信息和结果
-        
+
 
         Args:
             worksheet: Excel工作表对象
@@ -478,10 +493,10 @@ class ASACompareTask(BaseTask):
     # 处理单个站点的ASA防火墙主备对比：读取配置并进行差异分析
     def run_single(self, site: str):
         """处理单个站点的ASA防火墙主备对比
-        
+
 
         读取配置并进行差异分析
-        
+
 
         Args:
             site: 站点名称
@@ -510,12 +525,20 @@ class ASACompareTask(BaseTask):
             # 读取fw01配置并提取指定部分
             fw01_content = self._extract_config_section(fw01_path)
             if not fw01_content:
-                self.add_result(Level.WARN, f"站点 {site} FW01-FRP 未找到interface Port-channel到failover的配置段")
+                self.add_result(
+                    Level.WARN,
+                    f"站点 {site} FW01-FRP "
+                    f"未找到interface Port-channel到failover的配置段"
+                )
 
             # 读取fw02配置并提取指定部分
             fw02_content = self._extract_config_section(fw02_path)
             if not fw02_content:
-                self.add_result(Level.WARN, f"站点 {site} FW02-FRP 未找到interface Port-channel到failover的配置段")
+                self.add_result(
+                    Level.WARN,
+                    f"站点 {site} FW02-FRP "
+                    f"未找到interface Port-channel到failover的配置段"
+                )
 
         except Exception as error:
             self.add_result(Level.ERROR, f"站点 {site} 读取配置文件失败: {error}")
@@ -570,6 +593,10 @@ class ASACompareTask(BaseTask):
     # 重写run方法：在所有站点处理完成后保存Excel文件
     # 重写run方法，在所有站点处理完成后保存Excel文件
     def run(self) -> None:
+        """执行ASA防火墙主备对比检查任务
+
+        处理所有站点，对比主备防火墙配置差异并生成报告
+        """
         task_items = list(self.items())
         progress = tqdm(
             total=len(task_items),

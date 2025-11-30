@@ -95,26 +95,26 @@ FXOSWebTask:
   username: admin      # FXOS登录用户名
   password: enc:KAoeGQtSRlo=   # FXOS登录密码
   devices:            # FXOS设备列表
-    HX00-FXOS-01: https://10.10.88.246/
-    HX00-FXOS-02: https://10.10.88.245/
+    #HX00-FXOS-01: https://10.10.88.246/
+    #HX00-FXOS-02: https://10.10.88.245/
+    #HX01-FXOS-01: https://10.6.88.246/
+    #HX01-FXOS-02: https://10.6.88.245/
+    #HX02-FXOS-01: https://10.12.88.213/
+    #HX02-FXOS-02: https://10.12.88.215/
+    #HX03-FXOS-01: https://10.13.88.247/
+    #HX03-FXOS-02: https://10.13.88.246/
+    #HX04-FXOS-01: https://10.62.88.245/
+    #HX04-FXOS-02: https://10.62.88.244/
+    #HX05-FXOS-01: https://10.65.88.245/
+    #HX05-FXOS-02: https://10.65.88.244/
+    #HX06-FXOS-01: https://10.66.88.211/
+    #HX06-FXOS-02: https://10.66.88.213/
     HX00-FXOS-BK: https://10.10.88.243/
-    HX01-FXOS-01: https://10.6.88.246/
-    HX01-FXOS-02: https://10.6.88.245/
     HX01-FXOS-BK: https://10.6.88.243/
-    HX02-FXOS-01: https://10.12.88.213/
-    HX02-FXOS-02: https://10.12.88.215/
     HX02-FXOS-BK: https://10.12.88.243/
-    HX03-FXOS-01: https://10.13.88.247/
-    HX03-FXOS-02: https://10.13.88.246/
     HX03-FXOS-BK: https://10.13.88.241/
-    HX04-FXOS-01: https://10.62.88.245/
-    HX04-FXOS-02: https://10.62.88.244/
     HX04-FXOS-BK: https://10.62.88.242/
-    HX05-FXOS-01: https://10.65.88.245/
-    HX05-FXOS-02: https://10.65.88.244/
     HX05-FXOS-BK: https://10.65.88.212/
-    HX06-FXOS-01: https://10.66.88.211/
-    HX06-FXOS-02: https://10.66.88.213/
     HX06-FXOS-BK: https://10.66.88.221/
 # FortiGate设备配置 - MirrorFortiGateTask调用
 MirrorFortiGateTask:

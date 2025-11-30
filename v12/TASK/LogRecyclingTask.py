@@ -42,13 +42,13 @@
 # - 从settings读取log_dir和report_dir配置
 #
 # 输出:统计删除项数、压缩项数、错误项数，记录到巡检日报
-# 特点:支持灵活的日期配置，自动管理历史日志文件，确保存储空间合理使用
 
 # 导入标准库
 import datetime as dt
 import os
 import shutil
 import zipfile
+
 from typing import Optional
 
 # 导入第三方库
@@ -59,7 +59,10 @@ from .TaskBase import BaseTask, Level, CONFIG
 
 # 日志回收任务类：根据规则删除和压缩历史文件/目录
 class LogRecyclingTask(BaseTask):
-    
+    """日志回收任务
+
+    定期清理和压缩历史日志文件，自动管理LOG、REPORT、UPGRADELOG目录
+    """
 
     # 初始化日志回收任务：设置任务名称和配置
     def __init__(self):
@@ -68,23 +71,23 @@ class LogRecyclingTask(BaseTask):
         SETTINGS = CONFIG.get("settings", {})
         self.LOG_DIR = SETTINGS.get("log_dir", "LOG")
         self.REPORT_DIR = SETTINGS.get("report_dir", "REPORT")
-        
+
 
         # 固定目录路径
         self.ACL_DIR = "ACL"
         self.DOMAIN_DIR = "DOMAIN"
         self.CONFIGURATION_DIR = "CONFIGURATION"
         self.UPGRADELOG_DIR = "UPGRADELOG"
-        
+
 
         # 从配置读取指定运行日期
         TASK_CONFIG = CONFIG.get("LogRecyclingTask", {})
         FORCE_RUN_DATE_RAW = TASK_CONFIG.get("force_run_date")
-        
+
 
         TODAY = dt.date.today()
-        TODAY_STR = TODAY.strftime("%Y%m%d")
-        
+        TODAY_STRING = TODAY.strftime("%Y%m%d")
+
 
         # 判断是否应该执行
         if FORCE_RUN_DATE_RAW is not None:
@@ -99,17 +102,25 @@ class LogRecyclingTask(BaseTask):
                 if self.IS_MONTH_END:
                     self.add_result(Level.OK, f"配置指定运行日期: {FORCE_RUN_DATE_STR}，当前日期匹配，执行回收任务")
                 else:
-                    self.add_result(Level.WARN, f"配置指定运行日期: {FORCE_RUN_DATE_STR}，当前日期 {TODAY_STR} 不匹配，跳过日志回收任务")
+                    self.add_result(
+                        Level.WARN,
+                        f"配置指定运行日期: {FORCE_RUN_DATE_STR}，"
+                        f"当前日期 {TODAY_STRING} 不匹配，跳过日志回收任务"
+                    )
             except (ValueError, TypeError) as ERROR:
-                self.add_result(Level.ERROR, f"配置的日期格式错误: {FORCE_RUN_DATE_RAW}，应为YYYYMMDD格式（字符串或数字），跳过日志回收任务")
+                self.add_result(
+                    Level.ERROR,
+                    f"配置的日期格式错误: {FORCE_RUN_DATE_RAW}，"
+                    f"应为YYYYMMDD格式（字符串或数字），跳过日志回收任务"
+                )
                 self.IS_MONTH_END = False
         else:
             # 如果未配置指定日期，使用默认规则（月底最后一天）
             TOMORROW = TODAY + dt.timedelta(days=1)
             self.IS_MONTH_END = (TOMORROW.month != TODAY.month)
             if not self.IS_MONTH_END:
-                self.add_result(Level.WARN, f"当前不是月底最后一天（当前日期: {TODAY_STR}），跳过日志回收任务")
-    
+                self.add_result(Level.WARN, f"当前不是月底最后一天（当前日期: {TODAY_STRING}），跳过日志回收任务")
+
 
     # 尝试安全删除文件：支持 Windows 文件占用的重试与待删除标记
     def _safe_remove_file(self, file_path: str) -> bool:
@@ -138,10 +149,14 @@ class LogRecyclingTask(BaseTask):
 
     # 获取要处理的任务项列表：返回需要处理的目录类型列表（用于分组处理）
     def items(self):
-        # 返回需要处理的目录类型列表
+        """返回需要处理的目录类型列表
+
+        Returns:
+            目录类型列表，只在月底最后一天返回非空列表
+        """
         if not self.IS_MONTH_END:
             return []
-        
+
 
         # 返回目录类型列表，用于分组处理
         CATEGORIES = []
@@ -152,16 +167,16 @@ class LogRecyclingTask(BaseTask):
         # V10: ACL/DOMAIN/CONFIGURATION 已迁移至 LOG 下对应任务目录，不再单独处理
         if os.path.exists(self.UPGRADELOG_DIR):
             CATEGORIES.append("UPGRADELOG_FILE")
-        
+
 
         return CATEGORIES
-    
+
 
     # 收集指定类型的所有路径：收集某个目录类型下的所有文件/目录路径
     # 收集指定类型的所有路径
     def _collect_items_by_category(self, category: str) -> list[tuple[str, str]]:
         ITEMS = []
-        
+
 
         if category == "LOG_DIR":
             # LOG目录下的任务目录，收集每个任务目录下的日志文件
@@ -174,7 +189,7 @@ class LogRecyclingTask(BaseTask):
                             FILE_PATH = os.path.join(TASK_DIR_PATH, FILE_NAME)
                             if os.path.isfile(FILE_PATH):
                                 ITEMS.append(("LOG_FILE", FILE_PATH))
-        
+
 
         elif category == "REPORT_FILE":
             # REPORT目录下的文件
@@ -183,10 +198,10 @@ class LogRecyclingTask(BaseTask):
                     ITEM_PATH = os.path.join(self.REPORT_DIR, ITEM_NAME)
                     if os.path.isfile(ITEM_PATH):
                         ITEMS.append(("REPORT_FILE", ITEM_PATH))
-        
+
 
         # V10: ACL/DOMAIN/CONFIGURATION 已迁移至 LOG 下对应任务目录，不再单独处理
-        
+
 
         elif category == "UPGRADELOG_FILE":
             # UPGRADELOG目录下的所有文件（无条件删除）
@@ -195,17 +210,17 @@ class LogRecyclingTask(BaseTask):
                     ITEM_PATH = os.path.join(self.UPGRADELOG_DIR, ITEM_NAME)
                     if os.path.isfile(ITEM_PATH):
                         ITEMS.append(("UPGRADELOG_FILE", ITEM_PATH))
-        
+
 
         return ITEMS
-    
+
 
     # 从路径中提取日期：从文件名或目录名中提取YYYYMMDD格式的日期
     # 从路径中提取日期（支持YYYYMMDD格式）
     def _extract_date_from_path(self, path: str) -> Optional[dt.date]:
         import re
         BASENAME = os.path.basename(path)
-        
+
 
         # 尝试匹配YYYYMMDD格式（可能在文件名开头或目录名）
         DATE_MATCH = re.match(r"^(\d{8})", BASENAME)
@@ -215,7 +230,7 @@ class LogRecyclingTask(BaseTask):
                 return dt.datetime.strptime(DATE_STR, "%Y%m%d").date()
             except ValueError:
                 pass
-        
+
 
         # 如果目录名本身就是日期格式（8位数字）
         if len(BASENAME) == 8 and BASENAME.isdigit():
@@ -223,10 +238,10 @@ class LogRecyclingTask(BaseTask):
                 return dt.datetime.strptime(BASENAME, "%Y%m%d").date()
             except ValueError:
                 pass
-        
+
 
         return None
-    
+
 
     # 判断日期是否应该保留（规则1）：周一、周日、1号、31号保留
     # 判断日期是否应该保留（周一、周日、1号、31号）
@@ -239,29 +254,29 @@ class LogRecyclingTask(BaseTask):
                 date.weekday() == 6 or  # 周日
                 date.day == 1 or        # 1号
                 date.day == 31)         # 31号
-    
+
 
     # 判断日期是否应该压缩（规则2）：上上个月及更早的日期
     # 判断日期是否应该压缩（上上个月及更早）
     def _should_compress_date(self, date: dt.date) -> bool:
         TODAY = dt.date.today()
-        
+
 
         # 本月
         if date.year == TODAY.year and date.month == TODAY.month:
             return False
-        
+
 
         # 上个月
         LAST_MONTH = (TODAY.month - 1) if TODAY.month > 1 else 12
         LAST_YEAR = TODAY.year if TODAY.month > 1 else (TODAY.year - 1)
         if date.year == LAST_YEAR and date.month == LAST_MONTH:
             return False
-        
+
 
         # 上上个月及更早：需要压缩
         return True
-    
+
 
     # 判断文件是否超过180天
     # 判断文件日期是否超过180天
@@ -269,37 +284,37 @@ class LogRecyclingTask(BaseTask):
         TODAY = dt.date.today()
         DAYS_AGO = TODAY - dt.timedelta(days=180)
         return date < DAYS_AGO
-    
+
 
     # 递归收集LOG目录下的所有文件（包括子目录）
     def _collect_all_files_in_log_dir(self) -> list[tuple[str, str]]:
         ITEMS = []
         if not os.path.exists(self.LOG_DIR):
             return ITEMS
-        
+
 
         for ROOT, DIRS, FILES in os.walk(self.LOG_DIR):
             for FILE_NAME in FILES:
                 FILE_PATH = os.path.join(ROOT, FILE_NAME)
                 if os.path.isfile(FILE_PATH):
                     ITEMS.append(("LOG_FILE", FILE_PATH))
-        
+
 
         return ITEMS
-    
+
 
     # 执行180天清理：删除超过180天的文件（包括所有文件类型：.log、.xlsx、.zip等）
     def _apply_180_days_cleanup(self) -> None:
         ALL_FILES = self._collect_all_files_in_log_dir()
         DELETED_COUNT = 0
-        
+
 
         for ITEM_TYPE, ITEM_PATH in ALL_FILES:
             DATE = self._extract_date_from_path(ITEM_PATH)
             if not DATE:
-                # 无法提取日期，跳过（文件名不符合 YYYYMMDD-xxxx 格式）
+                # 无法提取日期，跳过（文件名不符合 YYYYMMDD-文件名后缀 格式）
                 continue
-            
+
 
             # 检查是否超过180天
             if self._is_older_than_180_days(DATE):
@@ -308,11 +323,11 @@ class LogRecyclingTask(BaseTask):
                     if not ITEM_PATH.endswith('.pending_delete') and not os.path.exists(ITEM_PATH):
                         DELETED_COUNT += 1
                         self.add_result(Level.OK, f"删除超过180天的文件: {ITEM_PATH}")
-        
+
 
         if DELETED_COUNT > 0:
             self.add_result(Level.OK, f"180天清理完成：删除 {DELETED_COUNT} 个文件")
-    
+
 
     # 执行规则1：删除不应该保留的文件/目录
     def _apply_rule1_delete(self, item_type: str, item_path: str) -> bool:
@@ -322,30 +337,32 @@ class LogRecyclingTask(BaseTask):
         # 跳过当天的巡检日报，避免与写入冲突
         try:
             BASENAME = os.path.basename(item_path)
-            TODAY_STR = dt.date.today().strftime("%Y%m%d")
-            if item_type == "REPORT_FILE" and BASENAME.startswith(TODAY_STR) and BASENAME.endswith("巡检日报.log"):
+            TODAY_STRING = dt.date.today().strftime("%Y%m%d")
+            if (item_type == "REPORT_FILE" and
+                    BASENAME.startswith(TODAY_STRING) and
+                    BASENAME.endswith("巡检日报.log")):
                 return False
         except Exception:
             pass
-        
+
 
         DATE = self._extract_date_from_path(item_path)
         if not DATE:
             # 无法提取日期，跳过
             return False
-        
+
 
         # 排除今天和昨天的日志，避免与写入冲突
         TODAY = dt.date.today()
         YESTERDAY = TODAY - dt.timedelta(days=1)
         if DATE == TODAY or DATE == YESTERDAY:
             return False
-        
+
 
         if self._should_keep_date(DATE):
             # 应该保留，不删除
             return False
-        
+
 
         # 应该删除
         try:
@@ -363,7 +380,7 @@ class LogRecyclingTask(BaseTask):
         except Exception as ERROR:
             self.add_result(Level.ERROR, f"删除失败 {item_path}: {ERROR}")
             return False
-    
+
 
     # 执行规则2：按月份批量压缩上上个月及更早的文件/目录
     # （同一月的文件/目录压缩到一个zip包中）
@@ -374,7 +391,7 @@ class LogRecyclingTask(BaseTask):
         for MONTH_KEY, ITEMS in items_by_month.items():
             if not ITEMS:
                 continue
-            
+
 
             # 获取压缩文件存放位置
             if parent_dir is None:
@@ -383,12 +400,12 @@ class LogRecyclingTask(BaseTask):
                 PARENT_DIR = os.path.dirname(FIRST_ITEM_PATH)
             else:
                 PARENT_DIR = parent_dir
-            
+
 
             # 压缩文件名：YYYYMM-月份归档.zip
             ARCHIVE_NAME = f"{MONTH_KEY}-月份归档.zip"
             ARCHIVE_PATH = os.path.join(PARENT_DIR, ARCHIVE_NAME)
-            
+
 
             try:
                 # 第一步：先压缩所有文件/目录到zip包
@@ -398,7 +415,7 @@ class LogRecyclingTask(BaseTask):
                         # 再次检查文件/目录是否仍然存在
                         if not os.path.exists(ITEM_PATH):
                             continue
-                        
+
 
                         try:
                             if ITEM_TYPE in ["LOG_DIR", "CONFIGURATION_DIR"]:
@@ -425,7 +442,7 @@ class LogRecyclingTask(BaseTask):
                         except Exception as ITEM_ERROR:
                             # 单个项目压缩失败，记录错误但继续处理其他项目
                             self.add_result(Level.ERROR, f"压缩项目失败 {ITEM_PATH}: {ITEM_ERROR}")
-                
+
 
                 # 第二步：压缩成功后，删除已被压缩的原文件/目录
                 DELETED_COUNT = 0
@@ -440,23 +457,35 @@ class LogRecyclingTask(BaseTask):
                         else:
                             # 删除文件
                             if self._safe_remove_file(ITEM_PATH):
-                                if not ITEM_PATH.endswith('.pending_delete') and not os.path.exists(ITEM_PATH):
+                                if (not ITEM_PATH.endswith('.pending_delete') and
+                                    not os.path.exists(ITEM_PATH)):
                                     DELETED_COUNT += 1
                     except Exception as DELETE_ERROR:
                         self.add_result(Level.ERROR, f"删除已压缩文件/目录失败 {ITEM_PATH}: {DELETE_ERROR}")
-                
+
 
                 if DELETED_COUNT > 0:
-                    self.add_result(Level.OK, f"压缩并删除 {MONTH_KEY} 月 {DELETED_COUNT} 项到: {ARCHIVE_PATH}")
+                    self.add_result(
+                        Level.OK,
+                        f"压缩并删除 {MONTH_KEY} 月 {DELETED_COUNT} 项到: "
+                        f"{ARCHIVE_PATH}"
+                    )
             except Exception as ERROR:
                 self.add_result(Level.ERROR, f"压缩失败 {MONTH_KEY} 月归档: {ERROR}")
-    
+
 
     # 处理单个目录类型：先执行规则1删除，再执行规则2压缩
     def run_single(self, category: str) -> None:
+        """处理单个目录类型
+
+        根据目录类型执行清理或压缩操作
+
+        Args:
+            category: 目录类型（如"LOG_DIR"、"REPORT_DIR"等）
+        """
         if not self.IS_MONTH_END:
             return
-        
+
 
         # UPGRADELOG特殊处理：无条件删除所有文件
         if category == "UPGRADELOG_FILE":
@@ -465,23 +494,24 @@ class LogRecyclingTask(BaseTask):
                 if os.path.exists(ITEM_PATH):
                     try:
                         if self._safe_remove_file(ITEM_PATH):
-                            if not ITEM_PATH.endswith('.pending_delete') and not os.path.exists(ITEM_PATH):
+                            if (not ITEM_PATH.endswith('.pending_delete') and
+                                    not os.path.exists(ITEM_PATH)):
                                 self.add_result(Level.OK, f"删除文件: {ITEM_PATH}")
                     except Exception as ERROR:
                         self.add_result(Level.ERROR, f"删除失败 {ITEM_PATH}: {ERROR}")
             return
-        
+
 
         # LOG_DIR特殊处理：先执行180天清理
         if category == "LOG_DIR":
             self._apply_180_days_cleanup()
-        
+
 
         # 收集该类型的所有路径
         ALL_ITEMS = self._collect_items_by_category(category)
         if not ALL_ITEMS:
             return
-        
+
 
         # 第一步：执行规则1删除
         REMAINING_ITEMS = []
@@ -489,14 +519,14 @@ class LogRecyclingTask(BaseTask):
             # 检查文件/目录是否仍然存在（可能已被删除）
             if not os.path.exists(ITEM_PATH):
                 continue
-            
+
 
             # 执行规则1删除
             if not self._apply_rule1_delete(ITEM_TYPE, ITEM_PATH):
                 # 如果未删除，加入剩余列表
                 if os.path.exists(ITEM_PATH):  # 再次检查，确保仍然存在
                     REMAINING_ITEMS.append((ITEM_TYPE, ITEM_PATH))
-        
+
 
         # 第二步：对剩余的文件/目录执行规则2压缩（按目录和月份分组）
         # 按目录和月份分组需要压缩的项：{parent_dir: {YYYYMM: [(item_type, item_path), ...]}}
@@ -505,68 +535,78 @@ class LogRecyclingTask(BaseTask):
             # 再次检查文件/目录是否仍然存在
             if not os.path.exists(ITEM_PATH):
                 continue
-            
+
 
             # 排除压缩包文件（避免处理已生成的压缩包）
             if ITEM_PATH.lower().endswith('.zip'):
                 continue
-            
+
 
             DATE = self._extract_date_from_path(ITEM_PATH)
             if not DATE:
                 # 无法提取日期，跳过
                 continue
-            
+
 
             # 排除今天和昨天的日志，避免与写入冲突
             TODAY = dt.date.today()
             YESTERDAY = TODAY - dt.timedelta(days=1)
             if DATE == TODAY or DATE == YESTERDAY:
                 continue
-            
+
 
             if not self._should_compress_date(DATE):
                 # 不需要压缩（本月或上个月），跳过
                 continue
-            
+
 
             # 获取父目录（用于分组）
             PARENT_DIR = os.path.dirname(ITEM_PATH)
-            
+
 
             # 按月份分组（YYYYMM格式）
             MONTH_KEY = DATE.strftime("%Y%m")
-            
+
 
             if PARENT_DIR not in ITEMS_BY_DIR_MONTH:
                 ITEMS_BY_DIR_MONTH[PARENT_DIR] = {}
             if MONTH_KEY not in ITEMS_BY_DIR_MONTH[PARENT_DIR]:
                 ITEMS_BY_DIR_MONTH[PARENT_DIR][MONTH_KEY] = []
             ITEMS_BY_DIR_MONTH[PARENT_DIR][MONTH_KEY].append((ITEM_TYPE, ITEM_PATH))
-        
+
 
         # 按目录和月份批量压缩
         for PARENT_DIR, ITEMS_BY_MONTH in ITEMS_BY_DIR_MONTH.items():
             if ITEMS_BY_MONTH:
                 self._apply_rule2_compress_by_month(category, ITEMS_BY_MONTH, PARENT_DIR)
-    
+
 
     # 重写run方法：只在月底最后一天执行
     def run(self) -> None:
-        # 只在月底最后一天执行回收任务（__init__中已添加WARN信息，此处不再重复）
+        """执行日志回收任务
+
+        只在月底最后一天执行回收任务，调用父类的run方法执行回收任务
+        """
         if not self.IS_MONTH_END:
             return
-        
+
 
         # 调用父类的run方法执行回收任务（会遍历items并调用run_single）
         super().run()
-        
+
 
         # 执行完成后输出统计信息
-        DELETE_COUNT = sum(1 for R in self.RESULTS if "删除" in R.message and "压缩并删除" not in R.message)
+        DELETE_COUNT = sum(
+            1 for R in self.RESULTS
+            if "删除" in R.message and "压缩并删除" not in R.message
+        )
         COMPRESS_COUNT = sum(1 for R in self.RESULTS if "压缩并删除" in R.message)
         ERROR_COUNT = sum(1 for R in self.RESULTS if R.level == Level.ERROR.value)
-        
 
-        self.add_result(Level.OK, f"日志回收完成：删除 {DELETE_COUNT} 项，压缩 {COMPRESS_COUNT} 项，错误 {ERROR_COUNT} 项")
+
+        self.add_result(
+            Level.OK,
+            f"日志回收完成：删除 {DELETE_COUNT} 项，"
+            f"压缩 {COMPRESS_COUNT} 项，错误 {ERROR_COUNT} 项"
+        )
 

@@ -20,6 +20,9 @@
 - 文档字符串检查（公共函数和类应有docstring，PEP 8 标准）
 - 异常处理检查（避免bare except，PEP 8 标准）
 - TODO/FIXME注释检查（提醒开发者处理待办事项）
+
+注意：ReleaseNotes.log 文档编写规范请参考 .cursorrules 中的"文档规范"部分。
+ReleaseNotes.log 应只记录具体的变更内容，避免使用过于描述性的语言（如"实现代码复用"、"提升可读性"等）。
 """
 
 import os
@@ -33,7 +36,9 @@ from collections import defaultdict
 STANDARD_LIBRARIES = {
     'os', 'sys', 're', 'json', 'time', 'datetime', 'pathlib', 'typing',
     'collections', 'dataclasses', 'enum', 'base64', 'subprocess', 'traceback',
-    'io', 'locale', 'socket', 'ipaddress', 'functools', 'itertools'
+    'io', 'locale', 'socket', 'ipaddress', 'functools', 'itertools',
+    'platform', 'random', 'zipfile', 'concurrent', 'shutil', 'unicodedata',
+    'difflib'
 }
 
 # 需要检查的目录
@@ -42,6 +47,47 @@ CHECK_DIRS = ['v12']
 IGNORE_DIRS = {'__pycache__', '.git', 'node_modules', '.pytest_cache', '.mypy_cache'}
 # 需要忽略的文件
 IGNORE_FILES = {'.pyc', '.pyo', '.pyd', '.so', '.dll', '.dylib'}
+
+# 常见缩写词（禁止在函数名、类名、变量名中使用）
+COMMON_ABBREVIATIONS = {
+    # 通用缩写
+    'tmp', 'temp', 'msg', 'err', 'str', 'int', 'num', 'cnt', 'idx', 'len',
+    'max', 'min', 'val', 'var', 'obj', 'arg', 'args', 'kwargs', 'cfg',
+    'config', 'conf', 'dir', 'file', 'path', 'url', 'uri', 'id', 'uid', 'pid',
+    # 网络相关
+    # 注意：'ip' 已从缩写列表中移除，允许使用（IP地址是通用术语）
+    'mac', 'dns', 'http', 'https', 'api', 'tcp', 'udp', 'ftp', 'ssh',
+    # 数据库相关
+    'db', 'sql', 'rdbms', 'nosql',
+    # 文件格式
+    'xml', 'json', 'html', 'css', 'js', 'jsx', 'ts', 'tsx', 'py', 'exe',
+    'dll', 'so', 'doc', 'docx', 'xls', 'xlsx', 'pdf', 'txt', 'log', 'csv',
+    'zip', 'tar', 'gz', 'bz2', 'xz', 'img', 'jpg', 'jpeg', 'png', 'gif',
+    'svg', 'ico',
+    # 编程相关
+    'buf', 'buff', 'ptr', 'ref', 'req', 'resp', 'res', 'ret', 'retval',
+    'stat', 'stats', 'info', 'inf', 'init', 'dest', 'destruct', 'mgr',
+    'hdl', 'handler', 'cb', 'callback', 'fn', 'func', 'proc', 'cmd',
+    'cmdline', 'env', 'envvar', 'opt', 'opts', 'param', 'params', 'attr',
+    'attrs', 'prop', 'props', 'elem', 'elems', 'item', 'items', 'node',
+    'nodes', 'child', 'children', 'parent', 'prev', 'next', 'head', 'tail',
+    'src', 'dst', 'dest', 'beg', 'begin', 'end', 'start', 'stop', 'finish',
+    'done', 'ok', 'fail', 'error', 'warn', 'warning', 'crit', 'critical',
+    'debug', 'logger', 'fmt', 'format', 'string', 'repr', 'bool', 'boolean',
+    'integer', 'float', 'double', 'char', 'byte', 'bytes', 'data', 'dat',
+    'buffer', 'mem', 'memory', 'addr', 'address', 'pointer', 'reference',
+    'value', 'variable', 'const', 'constant', 'static', 'global', 'local',
+    'parameter', 'argument', 'return', 'return_value', 'result', 'response',
+    'request', 'configuration', 'option', 'options', 'environment',
+    'environment_variable', 'system', 'operating_system', 'process', 'thread',
+    'thr', 'task', 'job', 'work', 'worker', 'manager', 'function',
+    'procedure', 'method', 'meth', 'class', 'cls', 'object', 'inst',
+    'instance', 'attribute', 'attributes', 'property', 'properties',
+    'element', 'elements', 'previous'
+}
+
+# 允许的单个字母变量名（通常用于循环变量）
+ALLOWED_SINGLE_LETTER_VARS = {'i', 'j', 'k', 'x', 'y', 'z', 'n', 'm'}
 
 class CodeStyleChecker:
     """代码规范检查器"""
@@ -421,6 +467,41 @@ class CodeStyleChecker:
         # 检查异常处理
         self._check_exceptions(file_path, tree)
     
+    def _is_abbreviation(self, name: str) -> bool:
+        """检查名称是否包含缩写
+        
+        Args:
+            name: 要检查的名称
+            
+        Returns:
+            如果包含缩写则返回 True
+        """
+        # 将驼峰命名或下划线命名拆分为单词
+        # 处理驼峰命名：将大写字母前插入分隔符
+        words = re.split(r'[_\s]+', re.sub(r'([a-z])([A-Z])', r'\1 \2', name))
+        words = [w for w in words if w]
+        
+        # 检查每个单词是否是缩写
+        for word in words:
+            word_lower = word.lower()
+            # 检查是否在常见缩写列表中
+            if word_lower in COMMON_ABBREVIATIONS:
+                return True
+            # 检查是否为单个字母（除了允许的循环变量）
+            if len(word) == 1 and word_lower not in ALLOWED_SINGLE_LETTER_VARS:
+                return True
+            # 检查是否全部是大写字母且长度较短（可能是缩写，如 ID, URL, API）
+            # 但排除明显的完整单词（如 MAX, MIN, LENGTH 等）
+            if len(word) > 1 and word.isupper() and len(word) <= 5:
+                # 如果单词在常见缩写列表中，则认为是缩写
+                if word_lower in COMMON_ABBREVIATIONS:
+                    return True
+                # 如果单词长度 <= 3 且全大写，很可能是缩写（如 ID, URL, API, DNS, HTTP）
+                if len(word) <= 3:
+                    return True
+        
+        return False
+    
     def add_error(self, file_path: Path, line: int, message: str):
         """添加错误"""
         self.errors.append(f"{file_path.relative_to(self.root_dir)}:第{line}行 - {message}")
@@ -460,6 +541,14 @@ class CodeStyleASTVisitor(ast.NodeVisitor):
             )
             self.checker.stats['class_warnings'] += 1
         
+        # 检查类名是否包含缩写
+        if self.checker._is_abbreviation(class_name):
+            self.checker.add_warning(
+                self.file_path, node.lineno,
+                f"类名包含缩写: {class_name} (应使用完整单词，避免缩写)"
+            )
+            self.checker.stats['abbreviation_warnings'] += 1
+        
         # 检查类前是否有注释
         self._check_comment_before(node)
         
@@ -492,6 +581,14 @@ class CodeStyleASTVisitor(ast.NodeVisitor):
                     f"函数名命名不规范: {func_name} (应为小写下划线 snake_case，PEP 8 标准)"
                 )
                 self.checker.stats['function_warnings'] += 1
+        
+        # 检查函数名是否包含缩写
+        if self.checker._is_abbreviation(func_name):
+            self.checker.add_warning(
+                self.file_path, node.lineno,
+                f"函数名包含缩写: {func_name} (应使用完整单词，避免缩写)"
+            )
+            self.checker.stats['abbreviation_warnings'] += 1
         
         # 检查函数前是否有注释
         self._check_comment_before(node)
@@ -526,6 +623,14 @@ class CodeStyleASTVisitor(ast.NodeVisitor):
                 )
                 self.checker.stats['function_warnings'] += 1
         
+        # 检查函数名是否包含缩写
+        if self.checker._is_abbreviation(func_name):
+            self.checker.add_warning(
+                self.file_path, node.lineno,
+                f"异步函数名包含缩写: {func_name} (应使用完整单词，避免缩写)"
+            )
+            self.checker.stats['abbreviation_warnings'] += 1
+        
         # 检查函数前是否有注释
         self._check_comment_before(node)
         
@@ -554,7 +659,13 @@ class CodeStyleASTVisitor(ast.NodeVisitor):
                     # PEP 8：模块级变量可以是常量（全大写）或普通变量（小写下划线）
                     if re.match(r'^[A-Z][A-Z0-9_]*$', var_name):
                         # 全大写，符合常量规范（PEP 8）
-                        pass
+                        # 检查常量名是否包含缩写
+                        if self.checker._is_abbreviation(var_name):
+                            self.checker.add_warning(
+                                self.file_path, node.lineno,
+                                f"模块级常量包含缩写: {var_name} (应使用完整单词，避免缩写)"
+                            )
+                            self.checker.stats['abbreviation_warnings'] += 1
                     elif not re.match(r'^[a-z][a-z0-9_]*$', var_name):
                         # 既不是全大写也不是小写下划线，警告
                         self.checker.add_warning(
@@ -562,13 +673,27 @@ class CodeStyleASTVisitor(ast.NodeVisitor):
                             f"模块级变量命名不规范: {var_name} (PEP 8 标准：应为小写下划线或全大写常量)"
                         )
                         self.checker.stats['variable_warnings'] += 1
+                    else:
+                        # 普通变量，检查是否包含缩写（允许循环变量）
+                        if var_name not in ALLOWED_SINGLE_LETTER_VARS and self.checker._is_abbreviation(var_name):
+                            self.checker.add_warning(
+                                self.file_path, node.lineno,
+                                f"模块级变量包含缩写: {var_name} (应使用完整单词，避免缩写)"
+                            )
+                            self.checker.stats['abbreviation_warnings'] += 1
                 
                 # 类属性检查（PEP 8 标准）
                 elif is_in_class and not is_in_function:
                     # PEP 8：类属性通常使用小写下划线，常量可以使用全大写
                     if re.match(r'^[A-Z][A-Z0-9_]*$', var_name):
                         # 全大写，可能是类常量
-                        pass
+                        # 检查常量名是否包含缩写
+                        if self.checker._is_abbreviation(var_name):
+                            self.checker.add_warning(
+                                self.file_path, node.lineno,
+                                f"类常量包含缩写: {var_name} (应使用完整单词，避免缩写)"
+                            )
+                            self.checker.stats['abbreviation_warnings'] += 1
                     elif not re.match(r'^[a-z][a-z0-9_]*$', var_name):
                         # 既不是全大写也不是小写下划线，警告
                         self.checker.add_warning(
@@ -576,6 +701,14 @@ class CodeStyleASTVisitor(ast.NodeVisitor):
                             f"类属性命名不规范: {var_name} (PEP 8 标准：应为小写下划线或全大写常量)"
                         )
                         self.checker.stats['variable_warnings'] += 1
+                    else:
+                        # 普通类属性，检查是否包含缩写（允许循环变量）
+                        if var_name not in ALLOWED_SINGLE_LETTER_VARS and self.checker._is_abbreviation(var_name):
+                            self.checker.add_warning(
+                                self.file_path, node.lineno,
+                                f"类属性包含缩写: {var_name} (应使用完整单词，避免缩写)"
+                            )
+                            self.checker.stats['abbreviation_warnings'] += 1
                 
                 # 函数内部变量检查（PEP 8 标准：小写下划线）
                 elif is_in_function:
@@ -588,6 +721,22 @@ class CodeStyleASTVisitor(ast.NodeVisitor):
                                 f"函数内部变量命名不规范: {var_name} (PEP 8 标准：应为小写下划线)"
                             )
                             self.checker.stats['variable_warnings'] += 1
+                        else:
+                            # 全大写常量，检查是否包含缩写
+                            if self.checker._is_abbreviation(var_name):
+                                self.checker.add_warning(
+                                    self.file_path, node.lineno,
+                                    f"函数内部常量包含缩写: {var_name} (应使用完整单词，避免缩写)"
+                                )
+                                self.checker.stats['abbreviation_warnings'] += 1
+                    else:
+                        # 普通变量，检查是否包含缩写（允许循环变量）
+                        if var_name not in ALLOWED_SINGLE_LETTER_VARS and self.checker._is_abbreviation(var_name):
+                            self.checker.add_warning(
+                                self.file_path, node.lineno,
+                                f"函数内部变量包含缩写: {var_name} (应使用完整单词，避免缩写)"
+                            )
+                            self.checker.stats['abbreviation_warnings'] += 1
         
         self.generic_visit(node)
     

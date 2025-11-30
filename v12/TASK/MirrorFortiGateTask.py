@@ -3,7 +3,7 @@
 # 技术栈:Paramiko SSH
 #
 # 指标:
-# 日志盘占用:diagnose sys logdisk usage → 解析 used/total MB → 与 fortigate.thresholds.disk_percent 比较（默认 WARN≥60，CRIT≥80）
+# 日志盘占用:diagnose sys logdisk usage → 解析 used/total MB → 与 MirrorFortiGateTask.thresholds.disk_percent 比较（从配置文件读取阈值）
 # CPU/内存/Uptime:get system performance status；如遇 --More-- 分页或缺失 Uptime，则切换交互分页（空格翻页）或再跑 get system status 兜底；
 # CPU:由 idle% 推算 used%
 # MEM:解析 used( xx % )
@@ -14,6 +14,7 @@
 # 导入标准库
 import re
 import unicodedata
+
 from typing import Optional, Tuple
 
 # 导入第三方库
@@ -37,16 +38,16 @@ RE_UPTIME_UNITS = re.compile(
 # 镜像飞塔防火墙巡检任务类：通过SSH连接检查FortiGate防火墙的性能指标和运行状态
 class MirrorFortiGateTask(BaseTask):
     """镜像飞塔防火墙巡检任务
-    
+
 
     通过SSH连接检查FortiGate防火墙的性能指标和运行状态
     """
-    
+
 
     # 初始化镜像飞塔防火墙巡检任务：设置SSH连接参数和性能阈值
     def __init__(self):
         super().__init__("镜像飞塔防火墙巡检")
-        
+
 
         # 验证MirrorFortiGateTask专用配置
         require_keys(CONFIG, ["MirrorFortiGateTask"], "root")
@@ -55,7 +56,7 @@ class MirrorFortiGateTask(BaseTask):
             ["username", "password", "port", "hosts", "thresholds"],
             "MirrorFortiGateTask"
         )
-        
+
 
         FORTI_CONFIG = CONFIG["MirrorFortiGateTask"]
         self.USERNAME = FORTI_CONFIG["username"]
@@ -76,7 +77,7 @@ class MirrorFortiGateTask(BaseTask):
     # 返回要巡检的FortiGate主机列表
     def items(self):
         """返回要巡检的FortiGate主机列表
-        
+
 
         Returns:
             list[str]: 主机列表
@@ -87,14 +88,14 @@ class MirrorFortiGateTask(BaseTask):
     @staticmethod
     def _parse_disk_percent(OUTPUT_TEXT: str) -> Optional[float]:
         """解析FortiGate磁盘使用率
-        
+
 
         从命令输出中提取磁盘使用百分比
-        
+
 
         Args:
             OUTPUT_TEXT: 命令输出文本
-            
+
 
         Returns:
             Optional[float]: 磁盘使用百分比，如果解析失败则返回None
@@ -111,17 +112,17 @@ class MirrorFortiGateTask(BaseTask):
     @staticmethod
     def _ssh_exec_paged(SSH: paramiko.SSHClient, CMD: str, TIMEOUT: int = 20) -> str:
         """处理 FortiGate 开启分页（--More--）的命令输出
-        
+
 
         通过 invoke_shell 发送命令，遇到 '--More--' 自动回空格取下一页，
         直到回到提示符或超时
-        
+
 
         Args:
             SSH: SSH客户端对象
             CMD: 要执行的命令
             TIMEOUT: 超时时间（秒）
-            
+
 
         Returns:
             str: 命令输出文本
@@ -186,19 +187,21 @@ class MirrorFortiGateTask(BaseTask):
 
     # 解析FortiGate性能状态：从命令输出中提取CPU、内存使用率和运行时间
     @staticmethod
-    def _parse_perf_status(OUTPUT_TEXT: str) -> Tuple[Optional[float], Optional[float], Optional[float]]:
+    def _parse_perf_status(
+            OUTPUT_TEXT: str
+    ) -> Tuple[Optional[float], Optional[float], Optional[float]]:
         """解析FortiGate性能状态
-        
+
 
         从命令输出中提取CPU、内存使用率和运行时间
-        
+
 
         Args:
             OUTPUT_TEXT: 命令输出文本
-            
+
 
         Returns:
-            Tuple[Optional[float], Optional[float], Optional[float]]: 
+            Tuple[Optional[float], Optional[float], Optional[float]]:
 
             (CPU使用率, 内存使用率, 运行天数)
         """
@@ -230,7 +233,7 @@ class MirrorFortiGateTask(BaseTask):
             # 解析uptime文本，返回天数
             if not TEXT:
                 return None
-            
+
 
             # 标准化字符串
             try:
@@ -239,13 +242,15 @@ class MirrorFortiGateTask(BaseTask):
                 NORMALIZED_TEXT = TEXT
             NORMALIZED_TEXT = NORMALIZED_TEXT.replace("\xa0", " ").strip()
             NORMALIZED_TEXT = re.sub(r"\s+", " ", NORMALIZED_TEXT)
-            
+
 
             # 尝试匹配标准格式
             MATCH_DAYS = re.search(r"(\d+)\s*d(?:ay)?s?", NORMALIZED_TEXT, re.IGNORECASE)
             MATCH_HOURS = re.search(r"(\d+)\s*h(?:our)?s?", NORMALIZED_TEXT, re.IGNORECASE)
-            MATCH_MINUTES = re.search(r"(\d+)\s*m(?:in(?:ute)?)?s?", NORMALIZED_TEXT, re.IGNORECASE)
-            
+            MATCH_MINUTES = re.search(
+                r"(\d+)\s*m(?:in(?:ute)?)?s?", NORMALIZED_TEXT, re.IGNORECASE
+            )
+
 
             if MATCH_DAYS and MATCH_HOURS and MATCH_MINUTES:
                 DAYS_VAL = int(MATCH_DAYS.group(1))
@@ -255,10 +260,12 @@ class MirrorFortiGateTask(BaseTask):
                 # 尝试数字序列
                 NUMBERS = re.findall(r"(\d+)", NORMALIZED_TEXT)
                 if len(NUMBERS) >= 3:
-                    DAYS_VAL, HOURS_VAL, MINUTES_VAL = int(NUMBERS[0]), int(NUMBERS[1]), int(NUMBERS[2])
+                    DAYS_VAL = int(NUMBERS[0])
+                    HOURS_VAL = int(NUMBERS[1])
+                    MINUTES_VAL = int(NUMBERS[2])
                 else:
                     return None
-            
+
 
             try:
                 return DAYS_VAL + HOURS_VAL / 24.0 + MINUTES_VAL / (24.0 * 60.0)
@@ -277,7 +284,7 @@ class MirrorFortiGateTask(BaseTask):
                 SEGMENT = SEGMENT.split("\n")[0]
                 SEGMENT = re.split(r"[#>]\s*$", SEGMENT)[0]
                 TAIL_TEXT = SEGMENT
-        
+
 
         # 解析uptime
         if UPTIME_DAYS is None:
@@ -289,7 +296,7 @@ class MirrorFortiGateTask(BaseTask):
                     UPTIME_DAYS = DAYS_VAL + HOURS_VAL / 24.0 + MINUTES_VAL / (24.0 * 60.0)
                 except Exception:
                     UPTIME_DAYS = None
-            
+
 
             # 如果正则失败，尝试文本解析
             if UPTIME_DAYS is None and TAIL_TEXT:
@@ -301,11 +308,11 @@ class MirrorFortiGateTask(BaseTask):
     @staticmethod
     def _get_hostname(SSH: paramiko.SSHClient) -> str:
         """获取FortiGate主机名
-        
+
 
         Args:
             SSH: SSH客户端对象
-            
+
 
         Returns:
             str: 主机名，如果获取失败则返回"Unknown"
@@ -320,19 +327,19 @@ class MirrorFortiGateTask(BaseTask):
     @staticmethod
     def _grade(VALUE: Optional[float], WARN: int, CRIT: int) -> Level:
         """性能指标评级
-        
+
 
         Args:
             VALUE: 指标值
             WARN: 警告阈值
             CRIT: 严重阈值
-            
+
 
         Returns:
             Level: 告警级别
         """
         return grade_percent(VALUE, WARN, CRIT)
-    
+
 
     # 检查性能指标：统一的性能指标检查逻辑
     def _check_performance_metric(
@@ -340,7 +347,7 @@ class MirrorFortiGateTask(BaseTask):
         VALUE: Optional[float], WARN_THRESHOLD: int, CRIT_THRESHOLD: int
     ) -> None:
         """检查性能指标并添加结果
-        
+
 
         Args:
             HOSTNAME: 主机名
@@ -365,10 +372,10 @@ class MirrorFortiGateTask(BaseTask):
     # 执行单个FortiGate设备的巡检：检查CPU、内存、磁盘和运行时间
     def run_single(self, HOST: str) -> None:
         """执行单个FortiGate设备的巡检
-        
+
 
         检查CPU、内存、磁盘和运行时间
-        
+
 
         Args:
             HOST: 主机地址
@@ -408,7 +415,10 @@ class MirrorFortiGateTask(BaseTask):
             # 2) 性能状态（CPU/内存/Uptime）
             # 先用普通 exec_command 拿一把；若检测到分页或缺少 Uptime，再用交互式分页读取
             _, PERF_OUTPUT, _ = ssh_exec(SSH, "get system performance status", label="perf status")
-            NEED_PAGED = ("--More--" in PERF_OUTPUT) or ("Uptime" not in PERF_OUTPUT and "uptime" not in PERF_OUTPUT)
+            NEED_PAGED = (
+                ("--More--" in PERF_OUTPUT) or
+                ("Uptime" not in PERF_OUTPUT and "uptime" not in PERF_OUTPUT)
+            )
             if NEED_PAGED:
                 PERF_OUTPUT = self._ssh_exec_paged(SSH, "get system performance status")
 
@@ -424,9 +434,13 @@ class MirrorFortiGateTask(BaseTask):
                     UPTIME_DAYS = UPTIME_TRY
 
             # 检查性能指标
-            self._check_performance_metric(HOSTNAME, HOST, "CPU", CPU_USED, self.CPU_WARN, self.CPU_CRIT)
-            self._check_performance_metric(HOSTNAME, HOST, "内存", MEM_USED, self.MEM_WARN, self.MEM_CRIT)
-            
+            self._check_performance_metric(
+                HOSTNAME, HOST, "CPU", CPU_USED, self.CPU_WARN, self.CPU_CRIT
+            )
+            self._check_performance_metric(
+                HOSTNAME, HOST, "内存", MEM_USED, self.MEM_WARN, self.MEM_CRIT
+            )
+
 
             # 检查运行时间
             if UPTIME_DAYS is None:

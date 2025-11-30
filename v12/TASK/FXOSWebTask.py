@@ -1,12 +1,12 @@
 # FXOS WEB 巡检任务
 #
 # 技术栈:Playwright（Chromium，无头模式），自动忽略自签名/不可信证书
-# 目标:对 fxos.devices 中的每个 FXOS 管理地址进行自动登录验证
+# 目标:对 FXOSWebTask.devices 中的每个 FXOS 管理地址进行自动登录验证
 #
 # 交互细节:支持自动模拟 Enter/Tab/Continue/Proceed/OK/确认/确定 点击，处理浏览器安全/提示对话；登录后等待指定 XPath 成功标志
 #
 # 输出:每台设备 "登录成功/失败"
-# 输出级别:登录成功为OK级别，登录失败为WARN级别（降低网络临时故障或设备暂时不可访问的告警级别）
+# 输出级别:登录成功为OK级别，登录失败为WARN级别
 
 # 导入标准库
 from typing import Dict
@@ -23,21 +23,21 @@ from .TaskBase import (
 # FXOS WEB巡检任务类：通过浏览器自动化技术对FXOS设备进行WEB界面巡检
 class FXOSWebTask(BaseTask):
     """FXOS WEB巡检任务
-    
+
 
     通过浏览器自动化技术对FXOS设备进行WEB界面巡检
     """
-    
+
 
     # 初始化FXOS WEB巡检任务：设置登录凭据、设备URL列表和自动化参数
     def __init__(self):
         super().__init__("FXOS WEB巡检")
-        
+
 
         # 验证FXOSWebTask专用配置
         require_keys(CONFIG, ["FXOSWebTask"], "root")
         require_keys(CONFIG["FXOSWebTask"], ["username", "password", "devices"], "FXOSWebTask")
-        
+
 
         FXOS_CFG = CONFIG["FXOSWebTask"]
         self.USERNAME = FXOS_CFG["username"]
@@ -54,7 +54,7 @@ class FXOSWebTask(BaseTask):
     # 返回要巡检的FXOS设备URL列表
     def items(self):
         """返回要巡检的FXOS设备URL列表
-        
+
 
         Returns:
             list: (设备名, URL)元组列表
@@ -64,10 +64,10 @@ class FXOSWebTask(BaseTask):
     # 自动处理页面继续按钮和对话框：通过键盘操作和元素点击自动跳过确认步骤
     def _nudge_continue(self, PAGE) -> None:
         """自动处理页面继续按钮和对话框
-        
+
 
         通过键盘操作和元素点击自动跳过确认步骤
-        
+
 
         Args:
             PAGE: Playwright页面对象
@@ -78,7 +78,7 @@ class FXOSWebTask(BaseTask):
             # 处理页面对话框：自动接受弹出的对话框
             def _on_dialog(DIALOG):
                 """处理页面对话框
-                
+
 
                 Args:
                     DIALOG: 对话框对象
@@ -127,10 +127,10 @@ class FXOSWebTask(BaseTask):
     # 执行单个FXOS设备的WEB巡检：自动登录并验证页面加载
     def run_single(self, item):
         """执行单个FXOS设备的WEB巡检
-        
+
 
         自动登录并验证页面加载
-        
+
 
         Args:
             item: (设备名, URL)元组
@@ -144,6 +144,11 @@ class FXOSWebTask(BaseTask):
             # ↓↓↓ 新增：统一超时 & 拦截图片/媒体/字体请求，降低负载
             CONTEXT.set_default_timeout(DEFAULT_PAGE_GOTO_TIMEOUT)
             def route_handler(ROUTE):
+                """路由处理器，阻止某些资源类型
+
+                Args:
+                    ROUTE: 路由对象
+                """
                 if ROUTE.request.resource_type in BLOCK_RES_TYPES:
                     ROUTE.abort()
                 else:
@@ -167,7 +172,10 @@ class FXOSWebTask(BaseTask):
 
                 self._nudge_continue(PAGE)
 
-                PAGE.wait_for_selector(f'xpath={self.EXPECTED_XPATH}', timeout=DEFAULT_SELECTOR_TIMEOUT)
+                PAGE.wait_for_selector(
+                    f'xpath={self.EXPECTED_XPATH}',
+                    timeout=DEFAULT_SELECTOR_TIMEOUT
+                )
                 self.add_result(Level.OK, f"站点{SITE_NAME}防火墙{DEVICE_NAME}网页登录成功")
             except Exception as ERROR:
                 self.add_result(Level.WARN, f"站点{SITE_NAME}防火墙{DEVICE_NAME}网页登录失败: {ERROR}")

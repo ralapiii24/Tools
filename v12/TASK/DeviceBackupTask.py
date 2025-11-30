@@ -9,21 +9,24 @@
 # 配置截取优化:根据设备类别智能截取相关配置段，减少冗余信息；
 # Excel输出:按设备类型和站点生成Sheet，包含设备配置和策略信息
 #
-# 输入文件:LOG目录下的设备配置文件（LOG/OxidizedTask/OxidizedTaskBackup/）
-# 输出文件:LOG/DeviceBackupTask/{日期}-关键设备配置备份输出EXCEL基础任务.xlsx（V10新结构：从ACL/SourceACL迁移）
+# 输入文件:从settings.log_dir读取LOG目录，设备配置文件位于{log_dir}/OxidizedTask/OxidizedTaskBackup/
+# 输出文件:{log_dir}/DeviceBackupTask/{日期}-关键设备配置备份输出EXCEL基础任务.xlsx（V10新结构：从ACL/SourceACL迁移）
 #
 # 设备分类规则:
-# - cat1: N9K核心交换机（按站点分组）
-# - cat2: LINKAS接入交换机（按站点分组）
-# - cat3: ASA防火墙（按站点分组）
-# - cat4: LINK-DS交换机（统一到LINKDS工作表）
-# - cat5: BGP设备（统一到BGP工作表）
-# - cat6: OOB-DS交换机（按站点分组）
+# - CS-N9K: N9K核心交换机（按站点分组）
+# - LINK-AS: LINKAS接入交换机（按站点分组）
+# - ASA-FW: ASA防火墙（按站点分组）
+# - LINK-DS: LINK-DS交换机（统一到LINKDS工作表）
+# - BGP: BGP设备（统一到BGP工作表）
+# - OOB-DS: OOB-DS交换机（按站点分组）
 #
 # 配置截取规则:
-# - NXOS N9K:从"! show running-config"开始截取
-# - IOS-XE:从"! Last configuration change"开始截取
-# - ASA FW:从"ASA Version"开始截取
+# - CS-N9K (NXOS N9K):从"! show running-config"开始截取
+# - LINK-AS (IOS-XE):从"! Last configuration change"开始截取
+# - ASA-FW:从"ASA Version"开始截取
+# - LINK-DS:支持N9K格式（"! show running-config"）或IOS-XE格式（"! Last configuration change"）
+# - BGP:支持N9K格式（"! show running-config"）或IOS-XE格式（"! Last configuration change"）
+# - OOB-DS (IOS-XE):从"! Last configuration change"开始截取
 #
 # 输出:生成标准化的ACL配置Excel文件，供其他ACL分析任务使用
 
@@ -50,11 +53,11 @@ from .CiscoBase import (
 # 关键设备配置备份任务类：将设备配置备份并输出为Excel格式
 class DeviceBackupTask(BaseTask):
     """关键设备配置备份任务
-    
+
 
     将N9K ASA设备配置备份并输出为Excel格式，为后续ACL分析提供基础数据
     """
-    
+
 
     # 初始化关键设备配置备份任务：设置输出目录和数据结构
     def __init__(self):
@@ -70,7 +73,8 @@ class DeviceBackupTask(BaseTask):
         self._TODAY = None
         self._IN_DIR = None
         self._XLSX_PATH = None
-        self._GROUPED_PATHS: dict[str, dict[str, list[str]]] = {}  # site -> {cat1:[path...], cat2:[...], cat3:[...]}
+        # site -> {CS-N9K:[path...], LINK-AS:[...], ASA-FW:[...]}
+        self._GROUPED_PATHS: dict[str, dict[str, list[str]]] = {}
         self._SITES_ORDER: list[str] = []
         self._WB = None
         self._TOTAL_DEVICES = 0
@@ -78,10 +82,10 @@ class DeviceBackupTask(BaseTask):
     # 扫描LOG目录获取站点列表：按站点分组N9K ASA设备配置文件
     def items(self):
         """扫描LOG目录获取站点列表
-        
+
 
         按站点分组N9K ASA设备配置文件
-        
+
 
         Returns:
             list[str]: 站点列表
@@ -105,46 +109,46 @@ class DeviceBackupTask(BaseTask):
         # 分组处理：根据设备分类规则进行分组
         GROUPED_PATHS: dict[str, dict[str, list[str]]] = {}
         RULES = self._get_device_classification_rules()
-        
+
 
         # 只处理当天的文件：检查文件名是否以当天日期开头
-        TODAY_STR = self._TODAY  # 格式：YYYYMMDD
+        TODAY_DATE_TEXT = self._TODAY  # 格式：YYYYMMDD
         # 只匹配格式: YYYYMMDD-设备名.log（日期在文件名开头）
-        DATE_PATTERN = re.compile(r'^' + re.escape(TODAY_STR) + r'-')
-        
+        DATE_PATTERN = re.compile(r'^' + re.escape(TODAY_DATE_TEXT) + r'-')
+
 
         for NAME in os.listdir(self._IN_DIR):
             if not NAME.lower().endswith(".log"):
                 continue
-            FULL_PATH = os.path.join(self._IN_DIR, NAME)
-            if not os.path.isfile(FULL_PATH):
+            FULL_DOCUMENT_PATH = os.path.join(self._IN_DIR, NAME)
+            if not os.path.isfile(FULL_DOCUMENT_PATH):
                 continue
-            
+
 
             # 检查文件名是否以当天日期开头
             if not DATE_PATTERN.match(NAME):
                 continue  # 跳过不以当天日期开头的文件
 
-            CAT = self._classify(NAME)  # 保持原分类
-            if not CAT:
+            CATEGORY = self._classify(NAME)  # 保持原分类
+            if not CATEGORY:
                 continue
-            
+
 
             # 获取该分类的分组策略
-            CAT_RULE = RULES.get(CAT, {})
-            GROUP_BY_SITE = CAT_RULE.get("group_by_site", True)
-            
+            CATEGORY_RULE = RULES.get(CATEGORY, {})
+            GROUP_BY_SITE = CATEGORY_RULE.get("group_by_site", True)
+
 
             if GROUP_BY_SITE:
                 # 按站点分组
                 SITE = self._extract_site(NAME)
-                SITE_MAP = GROUPED_PATHS.setdefault(SITE, {})
-                SITE_MAP.setdefault(CAT, []).append(FULL_PATH)
+                SITE_DICTIONARY = GROUPED_PATHS.setdefault(SITE, {})
+                SITE_DICTIONARY.setdefault(CATEGORY, []).append(FULL_DOCUMENT_PATH)
             else:
                 # 不按站点分组，使用指定的工作表名称
-                SHEET_NAME = CAT_RULE.get("sheet_name", CAT.upper())
-                SHEET_MAP = GROUPED_PATHS.setdefault(SHEET_NAME, {})
-                SHEET_MAP.setdefault(CAT, []).append(FULL_PATH)
+                SHEET_NAME = CATEGORY_RULE.get("sheet_name", CATEGORY.upper())
+                SHEET_DICTIONARY = GROUPED_PATHS.setdefault(SHEET_NAME, {})
+                SHEET_DICTIONARY.setdefault(CATEGORY, []).append(FULL_DOCUMENT_PATH)
 
         if not GROUPED_PATHS:
             self.add_result(Level.OK, f"未匹配到目标设备日志，未生成 Excel（目录：{self._IN_DIR}）")
@@ -177,133 +181,74 @@ class DeviceBackupTask(BaseTask):
         import re
         FILENAME_LOWER = OxidizedBackup_FILENAME.lower()
         # 类别1：CS + N9K + (01|02|03|04)，兼容连写
-        CONTAINS_CS = ("cs" in FILENAME_LOWER) or re.search(r"\bcs\b", FILENAME_LOWER)
-        CONTAINS_N9K = ("n9k" in FILENAME_LOWER) or re.search(r"\bn9k\b", FILENAME_LOWER)
+        CONTAINS_CORE_SWITCH = ("cs" in FILENAME_LOWER) or re.search(r"\bcs\b", FILENAME_LOWER)
+        CONTAINS_NEXUS_9K = ("n9k" in FILENAME_LOWER) or re.search(r"\bn9k\b", FILENAME_LOWER)
         CONTAINS_DEVICE_NUMBER = re.search(r"(?:^|[^0-9])0?[1-4](?:[^0-9]|$)", FILENAME_LOWER)
-        CS_JOIN = re.search(r"cs0?[1-4]", FILENAME_LOWER)
-        CLASS1 = (CONTAINS_CS and CONTAINS_N9K and CONTAINS_DEVICE_NUMBER) or (CS_JOIN and CONTAINS_N9K)
+        CORE_SWITCH_JOIN = re.search(r"cs0?[1-4]", FILENAME_LOWER)
+        CLASS1 = (
+            (CONTAINS_CORE_SWITCH and CONTAINS_NEXUS_9K and CONTAINS_DEVICE_NUMBER) or
+            (CORE_SWITCH_JOIN and CONTAINS_NEXUS_9K)
+        )
 
         # 类别2：LINK + AS + (01|02)，兼容连写
         CONTAINS_LINK = ("link" in FILENAME_LOWER) or re.search(r"\blink\b", FILENAME_LOWER)
-        CONTAINS_AS = ("as" in FILENAME_LOWER) or re.search(r"\bas\b", FILENAME_LOWER)
+        CONTAINS_ACCESS_SWITCH = ("as" in FILENAME_LOWER) or re.search(r"\bas\b", FILENAME_LOWER)
         CONTAINS_01_02 = re.search(r"(?:^|[^0-9])0?[12](?:[^0-9]|$)", FILENAME_LOWER)
         LINKAS_JOIN = re.search(r"link[-_]*as0?[12]", FILENAME_LOWER)
-        AS_JOIN = re.search(r"as0?[12]", FILENAME_LOWER)
-        CLASS2 = LINKAS_JOIN or (CONTAINS_LINK and CONTAINS_AS and CONTAINS_01_02) or (CONTAINS_LINK and AS_JOIN)
+        ACCESS_SWITCH_JOIN = re.search(r"as0?[12]", FILENAME_LOWER)
+        CLASS2 = (
+            LINKAS_JOIN or
+            (CONTAINS_LINK and CONTAINS_ACCESS_SWITCH and CONTAINS_01_02) or
+            (CONTAINS_LINK and ACCESS_SWITCH_JOIN)
+        )
         return bool(CLASS1 or CLASS2)
 
-    # 设备分类规则配置：定义各种设备类型的匹配规则
+    # 获取设备分类规则（包含分组策略）：从CiscoBase获取基础规则，添加DeviceBackupTask特有的分组策略
     @staticmethod
-    # 返回设备分类规则字典，包含分组策略
     def _get_device_classification_rules():
-        return {
-            "cat1": {
-                "name": "N9K核心交换机",
-                "group_by_site": True,  # 按站点分组
-                "patterns": [
-                    # CS + N9K + (01|02|03|04)，统一匹配模式（参数已为小写）
-                    # 要求：包含n9k，且(CS+设备编号)或(CS连写模式如cs01)
-                    lambda OxidizedBackup_FILENAME: (
-                        re.search(r"\bn9k\b", OxidizedBackup_FILENAME) and (
-                            (re.search(r"\bcs\b", OxidizedBackup_FILENAME) and
-                                re.search(r"(?:^|[^0-9])0?[1-4](?:[^0-9]|$)", OxidizedBackup_FILENAME)) or
-                            re.search(r"\bcs0?[1-4]", OxidizedBackup_FILENAME)
-                        )
-                    )
-                ]
-            },
-            "cat2": {
-                "name": "LINKAS接入交换机",
-                "group_by_site": True,  # 按站点分组
-                "patterns": [
-                    # LINK + AS + (01|02)，统一匹配模式（参数已为小写）
-                    # 支持：LINKAS连写（link.*as01）、LINK+AS+设备编号、LINK+AS01/02连写
-                    lambda OxidizedBackup_FILENAME: (
-                        re.search(r"\blink.*as0?[12]\b", OxidizedBackup_FILENAME) or
-                        (re.search(r"\bas0?[12]\b", OxidizedBackup_FILENAME) and
-                            re.search(r"\blink\b", OxidizedBackup_FILENAME)) or
-                        (re.search(r"\blink\b", OxidizedBackup_FILENAME) and
-                            re.search(r"\bas\b", OxidizedBackup_FILENAME) and
-                            re.search(r"(?:^|[^0-9])0?[12](?:[^0-9]|$)", OxidizedBackup_FILENAME))
-                    )
-                ]
-            },
-            "cat3": {
-                "name": "ASA防火墙",
-                "group_by_site": True,  # 按站点分组
-                "patterns": [
-                    # 固定组合：fw01-frp 或 fw02-frp（参数已为小写）
-                    lambda OxidizedBackup_FILENAME: (
-                        "fw01-frp" in OxidizedBackup_FILENAME or
-                        "fw02-frp" in OxidizedBackup_FILENAME
-                    )
-                ]
-            },
-            "cat4": {
-                "name": "LINK-DS交换机",
-                "group_by_site": False,  # 不按站点分组，统一到LINKDS工作表
-                "sheet_name": "LINKDS",  # 指定工作表名称
-                "patterns": [
-                    # Link-DS + (01|02) + C9300/N9K（参数已为小写，合并为统一模式）
-                    lambda OxidizedBackup_FILENAME: (
-                        "link-ds" in OxidizedBackup_FILENAME and
-                        re.search(r"0?[12]", OxidizedBackup_FILENAME)
-                    ),
-                    # 支持连写模式（参数已为小写）
-                    lambda OxidizedBackup_FILENAME: re.search(r"link[-_]?ds0?[12]", OxidizedBackup_FILENAME)
-                ]
-            },
-            "cat5": {
-                "name": "BGP设备",
-                "group_by_site": False,  # 不按站点分组，统一到BGP工作表
-                "sheet_name": "BGP",  # 指定工作表名称
-                "patterns": [
-                    # 只要包含 bgp 关键词即可（参数已为小写）
-                    lambda OxidizedBackup_FILENAME: (
-                        ("bgp" in OxidizedBackup_FILENAME) or
-                        re.search(r"\bbgp\b", OxidizedBackup_FILENAME)
-                    )
-                ]
-            },
-            "cat6": {
-                "name": "OOB-DS交换机",
-                "group_by_site": True,  # 按站点分组
-                "patterns": [
-                    # OOB-DS + (01|02)，支持连写和分隔符
-                    # 格式: OOB-DS01, OOB_DS01, OOB-DS02 等
-                    lambda OxidizedBackup_FILENAME: (
-                        re.search(r"\boob[-_]?ds0?[12]\b", OxidizedBackup_FILENAME) or
-                        (re.search(r"\boob\b", OxidizedBackup_FILENAME) and
-                            re.search(r"\bds\b", OxidizedBackup_FILENAME) and
-                            re.search(r"(?:^|[^0-9])0?[12](?:[^0-9]|$)", OxidizedBackup_FILENAME))
-                    )
-                ]
-            }
-        }
+        """获取设备分类规则（包含分组策略）
+
+        从CiscoBase获取基础规则，添加DeviceBackupTask特有的分组策略（group_by_site和sheet_name）
+
+        Returns:
+            Dict: 设备分类规则字典，包含分组策略
+        """
+        # 从CiscoBase获取基础规则
+        BASE_RULES = get_device_classification_rules()
+
+        # 添加DeviceBackupTask特有的分组策略
+        RULES = {}
+        for CAT_ID, RULE_CONFIG in BASE_RULES.items():
+            RULES[CAT_ID] = RULE_CONFIG.copy()
+            # 添加分组策略（默认按站点分组）
+            if CAT_ID in ["cat1", "cat2", "cat3", "cat6"]:
+                RULES[CAT_ID]["group_by_site"] = True
+            elif CAT_ID == "cat4":
+                RULES[CAT_ID]["group_by_site"] = False
+                RULES[CAT_ID]["sheet_name"] = "LINKDS"
+            elif CAT_ID == "cat5":
+                RULES[CAT_ID]["group_by_site"] = False
+                RULES[CAT_ID]["sheet_name"] = "BGP"
+
+        return RULES
 
     # 对目标文件进行分类：根据文件名模式将文件分为不同类别
     @staticmethod
     def _classify(FILENAME: str) -> Optional[str]:
         """对目标文件进行分类
-        
+
 
         Args:
             FILENAME: 文件名
-            
+
 
         Returns:
             Optional[str]: 分类ID，如果无法分类则返回None
         """
         import re
         FILENAME_LOWER = FILENAME.lower()
-        # 使用CiscoBase中的设备分类规则（cat1和cat2），DeviceBackupTask特有的cat3/cat4/cat5/cat6规则保留在本地
-        BASE_RULES = get_device_classification_rules()
-        RULES = DeviceBackupTask._get_device_classification_rules()
-        # 合并规则：优先使用CiscoBase的规则（cat1、cat2、cat6），DeviceBackupTask特有的规则（cat3、cat4、cat5）保留
-        RULES["cat1"] = BASE_RULES["cat1"]
-        RULES["cat2"] = BASE_RULES["cat2"]
-        RULES["cat6"] = BASE_RULES["cat6"]
-        
+        # 使用CiscoBase中的统一设备分类规则
+        RULES = get_device_classification_rules()
 
         # 遍历所有分类规则
         for CAT_ID, RULE_CONFIG in RULES.items():
@@ -316,11 +261,11 @@ class DeviceBackupTask(BaseTask):
     @staticmethod
     def _extract_site(FILENAME: str) -> str:
         """从文件名提取站点名
-        
+
 
         Args:
             FILENAME: 文件名
-            
+
 
         Returns:
             str: 站点名
@@ -331,11 +276,11 @@ class DeviceBackupTask(BaseTask):
     @staticmethod
     def _safe_sheet_name(NAME: str) -> str:
         """生成安全的Excel工作表名称
-        
+
 
         Args:
             NAME: 原始名称
-            
+
 
         Returns:
             str: 安全的Excel工作表名称
@@ -343,61 +288,61 @@ class DeviceBackupTask(BaseTask):
         return safe_sheet_name(NAME)
 
     # 根据设备类别截取配置内容：从指定起始行开始截取配置
-    def _extract_config(self, LINES: list[str], CAT: str, FNAME: str) -> list[str]:
+    def _extract_configuration(self, LINES: list[str], CATEGORY: str, FNAME: str) -> list[str]:
         """根据设备类别截取配置内容
-        
+
 
         Args:
             LINES: 配置行列表
-            CAT: 设备类别
+            CATEGORY: 设备类别
             FNAME: 文件名
-            
+
 
         Returns:
             list[str]: 截取后的配置行列表
         """
-        if CAT == "cat1":  # NXOS N9K
-            START_MARKER = "! show running-config"
+        if CATEGORY == "cat1":  # CS-N9K (NXOS N9K)
+            START_DELIMITER = "! show running-config"
             for LINE_INDEX, LINE in enumerate(LINES):
-                if LINE.strip().startswith(START_MARKER):
+                if LINE.strip().startswith(START_DELIMITER):
                     return LINES[LINE_INDEX:]  # 从该行开始截取到文件末尾
-        elif CAT == "cat2":  # LINKAS接入交换机（IOS-XE）
+        elif CATEGORY == "cat2":  # LINK-AS (LINKAS接入交换机，IOS-XE)
             # LINKAS接入交换机使用IOS-XE配置格式
             IOSXE_MARKER = "! Last configuration change"
             for LINE_INDEX, LINE in enumerate(LINES):
                 if LINE.strip().startswith(IOSXE_MARKER):
                     return LINES[LINE_INDEX:]  # IOS-XE 配置
-        elif CAT == "cat3":  # ASA防火墙
+        elif CATEGORY == "cat3":  # ASA-FW (ASA防火墙)
             # ASA防火墙配置提取
-            ASA_MARKER = "ASA Version"
+            ASA_DELIMITER = "ASA Version"
             for LINE_INDEX, LINE in enumerate(LINES):
-                if LINE.strip().startswith(ASA_MARKER):
+                if LINE.strip().startswith(ASA_DELIMITER):
                     return LINES[LINE_INDEX:]  # ASA 配置
-        elif CAT == "cat4":  # LINK-DS交换机
+        elif CATEGORY == "cat4":  # LINK-DS (LINK-DS交换机)
             # LINK-DS交换机配置提取（支持N9K和IOS-XE）
-            N9K_MARKER = "! show running-config"
+            NEXUS_9K_DELIMITER = "! show running-config"
             IOSXE_MARKER = "! Last configuration change"
             for LINE_INDEX, LINE in enumerate(LINES):
-                if LINE.strip().startswith(N9K_MARKER):
+                if LINE.strip().startswith(NEXUS_9K_DELIMITER):
                     return LINES[LINE_INDEX:]  # N9K 配置
                 elif LINE.strip().startswith(IOSXE_MARKER):
                     return LINES[LINE_INDEX:]  # IOS-XE 配置
-        elif CAT == "cat5":  # BGP设备
+        elif CATEGORY == "cat5":  # BGP (BGP设备)
             # BGP设备配置提取（支持N9K和IOS-XE）
-            N9K_MARKER = "! show running-config"
+            NEXUS_9K_DELIMITER = "! show running-config"
             IOSXE_MARKER = "! Last configuration change"
             for LINE_INDEX, LINE in enumerate(LINES):
-                if LINE.strip().startswith(N9K_MARKER):
+                if LINE.strip().startswith(NEXUS_9K_DELIMITER):
                     return LINES[LINE_INDEX:]  # N9K 配置
                 elif LINE.strip().startswith(IOSXE_MARKER):
                     return LINES[LINE_INDEX:]  # IOS-XE 配置
-        elif CAT == "cat6":  # OOB-DS交换机（IOS-XE）
+        elif CATEGORY == "cat6":  # OOB-DS (OOB-DS交换机，IOS-XE)
             # OOB-DS交换机使用IOS-XE配置格式
             IOSXE_MARKER = "! Last configuration change"
             for LINE_INDEX, LINE in enumerate(LINES):
                 if LINE.strip().startswith(IOSXE_MARKER):
                     return LINES[LINE_INDEX:]  # IOS-XE 配置
-        
+
 
         # 如果没找到标记，返回原始内容
         return LINES
@@ -405,11 +350,11 @@ class DeviceBackupTask(BaseTask):
     # 处理单个站点/工作表的配置备份：读取配置文件并生成Excel工作表
     def run_single(self, SITE: str):
         """处理单个站点/工作表的配置备份
-        
+
 
         读取配置文件并生成Excel工作表
-        参数SITE可能是站点名（对于cat1/cat2/cat3）或工作表名（对于cat4/cat5）
-        
+        参数SITE可能是站点名（对于CS-N9K/LINK-AS/ASA-FW）或工作表名（对于LINK-DS/BGP）
+
 
         Args:
             SITE: 站点名或工作表名
@@ -425,40 +370,42 @@ class DeviceBackupTask(BaseTask):
         WRAP = Alignment(wrap_text=True, vertical="top")
 
         COLUMN_INDEX = 1
-        SITE_CATEGORY_MAP = self._GROUPED_PATHS[SITE]
+        SITE_CATEGORY_DICTIONARY = self._GROUPED_PATHS[SITE]
 
         # 列顺序：按分类规则定义的顺序显示
         RULES = self._get_device_classification_rules()
         for CATEGORY in RULES.keys():
-            for FULL_PATH in SITE_CATEGORY_MAP.get(CATEGORY, []):
-                FILE_NAME = os.path.basename(FULL_PATH)
+            for FULL_DOCUMENT_PATH in SITE_CATEGORY_DICTIONARY.get(CATEGORY, []):
+                DOCUMENT_NAME = os.path.basename(FULL_DOCUMENT_PATH)
                 try:
-                    with open(FULL_PATH, "r", encoding="utf-8", errors="ignore") as FILE_HANDLE:
+                    with open(
+                        FULL_DOCUMENT_PATH, "r", encoding="utf-8", errors="ignore"
+                    ) as FILE_HANDLE:
                         LINES = FILE_HANDLE.read().splitlines()
-                    
+
 
                     # 根据设备类别截取配置内容
-                    CONFIG_LINES = self._extract_config(LINES, CATEGORY, FILE_NAME)
-                    
+                    CONFIGURATION_LINE_LIST = self._extract_configuration(LINES, CATEGORY, DOCUMENT_NAME)
+
 
                 except Exception as EXCEPTION:
-                    self.add_result(Level.ERROR, f"读取失败 {FILE_NAME}: {EXCEPTION}")
+                    self.add_result(Level.ERROR, f"读取失败 {DOCUMENT_NAME}: {EXCEPTION}")
                     # 仍占一列留痕
                     CELL = WORKSHEET.cell(
                         row=1, column=COLUMN_INDEX,
-                        value=f"{FILE_NAME}（读取失败：{EXCEPTION}）"
+                        value=f"{DOCUMENT_NAME}（读取失败：{EXCEPTION}）"
                     )
                     CELL.alignment = WRAP
                     WORKSHEET.column_dimensions[get_column_letter(COLUMN_INDEX)].width = 80
                     COLUMN_INDEX += 1
                     continue
 
-                WORKSHEET.cell(row=1, column=COLUMN_INDEX, value=FILE_NAME).alignment = WRAP
-                ROW_INDEX = 2
-                for LINE in CONFIG_LINES:
-                    WORKSHEET.cell(row=ROW_INDEX, column=COLUMN_INDEX, value=LINE).alignment = WRAP
-                    WORKSHEET.row_dimensions[ROW_INDEX].height = 15
-                    ROW_INDEX += 1
+                WORKSHEET.cell(row=1, column=COLUMN_INDEX, value=DOCUMENT_NAME).alignment = WRAP
+                ROW_POSITION = 2
+                for LINE in CONFIGURATION_LINE_LIST:
+                    WORKSHEET.cell(row=ROW_POSITION, column=COLUMN_INDEX, value=LINE).alignment = WRAP
+                    WORKSHEET.row_dimensions[ROW_POSITION].height = 15
+                    ROW_POSITION += 1
                 WORKSHEET.column_dimensions[get_column_letter(COLUMN_INDEX)].width = 80
                 COLUMN_INDEX += 1
 

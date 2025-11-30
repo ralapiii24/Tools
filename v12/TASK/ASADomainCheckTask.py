@@ -8,7 +8,7 @@
 # - 域名提取: 仅扫描 FW01(-FRP) 列，支持完整域名与子串提取，跳过 URL/NAT/host-range-subnet/domain-name
 # - DNS检测: 先加载本地缓存，未命中再解析；DNS不可达降级执行（仅缓存）
 # - Excel标色: 保留源样式，失败标红并按场景底色区分；对象组/绑定行联动标色
-# - 稳健输出: 每次任务强制删除并重建输出Excel，确保与源Excel一致（V10优化）
+# - 稳健输出: 每次任务强制删除并重建输出Excel（V10优化）
 # - 输出优化: 单站点输出合并为单行汇总，静默中间OK日志（V10优化）
 #
 # 脚本生成（手工回收分支）:
@@ -18,7 +18,7 @@
 #
 # DNS 缓存（统一文件）:
 # - 路径: CHECKRULE/DNSLocalCache.log（V10新结构：从DOMAIN迁移），三态：S=特殊白名单、T=临时成功、D=失败
-# - 行为: 月初自动清理 T；D→T→S 自动晋级；S 优先且不被失败覆盖
+# - 行为: 月初自动清理 T；D→S 自动晋级（如果成功域名在D中，今天成功则自动升S）；S 优先且不被失败覆盖
 #
 # 日志优化:
 # - 支持 settings.suppress_ok_logs 抑制 OK 级日志
@@ -30,13 +30,12 @@
 # - LOG/ASADomainCheckTask/ConfigureOutput/{日期}-ManualDomainRecovery.xlsx（模板标色，V10新结构：从CONFIGURATION迁移）
 #
 # 日期逻辑:自动扫描LOG目录，按日期分组处理，月初第一天清空临时缓存
-# 站点识别:使用与ASACompareTask相同的站点提取规则，确保一致性
+# 站点识别:使用与ASACompareTask相同的站点提取规则
 #
 # 缓存机制:
 # - CHECKRULE/DNSLocalCache.log（V10新结构：从DOMAIN迁移）: 统一DNS缓存文件，三态：S=特殊白名单、T=临时成功、D=失败
 # - 优先使用缓存，缓存未命中时查询DNS服务器
 # - 自动去重：添加域名时检测重复，避免重复写入
-# - 缓存文件统一放在CHECKRULE目录下，便于管理（V10新结构）
 #
 # 失败跟踪:
 # - 每天失败域名保存到LOG/日期/DNSQueryFalse.log（V10: 已废弃，不再使用）
@@ -47,13 +46,14 @@
 # 配置说明:所有配置硬编码在Python文件中，自动扫描LOG目录，支持fw01-frp和fw02-frp文件格式
 
 # 导入标准库
+import concurrent.futures
 import os
-import shutil
 import re
+import shutil
 import socket
+
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Set, Tuple
-import concurrent.futures
 
 # 导入第三方库
 from openpyxl import load_workbook
@@ -67,7 +67,10 @@ from .TaskBase import BaseTask, Level, CONFIG, require_keys
 # 任务1：从ASA FW配置中提取域名，进行DNS解析检测，并将结果标色到Excel
 # 任务2：从手动输入的域名清单生成回收脚本（操作脚本和回退脚本）并标色到Excel
 class ASADomainCheckTask(BaseTask):
-    
+    """ASA域名提取及检测任务
+
+    从ASA防火墙配置中提取域名，并进行DNS解析检测
+    """
 
     # 初始化ASA域名提取和检测任务：设置输入输出路径和DNS服务器
     def __init__(self):
@@ -80,7 +83,7 @@ class ASADomainCheckTask(BaseTask):
         self.DNS_TIMEOUT = 3  # DNS解析超时时间(秒)
         self._TODAY = None
         self._SITES_DATA = {}  # {site: {}} 用于记录已识别的站点
-        
+
 
         # 统一DNS缓存文件（S/T/D 三态）：S=特殊白名单(不回收), T=临时成功缓存, D=可回收失败
         # V10新结构：从 CHECKRULE/ 读取（DOMAIN/已迁移）
@@ -114,11 +117,17 @@ class ASADomainCheckTask(BaseTask):
             r'([A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?'
             r'(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+)'
         )
-    
+
 
     # 扫描源Excel获取站点列表：以首行识别FW01列
     def items(self):
-        # 从源Excel识别需处理的站点（要求存在FW01列）
+        """返回要处理的站点列表
+
+        从源Excel识别需处理的站点（要求存在FW01列）
+
+        Returns:
+            站点名称列表
+        """
         self._TODAY = datetime.now().strftime("%Y%m%d")
         source_excel = os.path.join(self.ACL_DIR, f"{self._TODAY}-关键设备配置备份输出EXCEL基础任务.xlsx")
 
@@ -159,7 +168,7 @@ class ASADomainCheckTask(BaseTask):
             self.add_result(Level.ERROR, "未在源Excel中找到含FW01表头的站点sheet")
         self._SITES_DATA = {SITE: {} for SITE in candidate_sites}
         return sorted(candidate_sites)
-    
+
 
         # 加载DNS缓存（统一文件）
     # 加载统一DNS缓存文件，并在月初清理T条目：force=True为强制重载，否则若已加载过则直接返回；verbose=False为不输出OK日志
@@ -221,25 +230,25 @@ class ASADomainCheckTask(BaseTask):
             except Exception as error:
                 self.add_result(Level.WARN, f"月初清理DNS缓存失败: {error}")
         self._CACHE_LOADED = True
-    
+
 
     # 保存DNS缓存
     # 将成功域名写入统一缓存(T)，自动去重；如果域名在D中（昨天失败），自动升S
     def _save_dns_cache(self, successful_domains: Set[str]) -> None:
         if not successful_domains:
             return
-        
+
 
         try:
             # 先加载现有集合
             self._load_dns_cache()
-            
+
 
             # 检查：如果成功域名在D中（昨天失败），今天成功则自动升S（不回收）
             recovered_domains = successful_domains & self._DNS_DELETE
             if recovered_domains:
                 self._add_to_special_cache(recovered_domains)
-            
+
 
             # 不写入已在 S 或 T 中的域名
             skip = self._DNS_SPECIAL | self._DNS_TEMP
@@ -256,13 +265,13 @@ class ASADomainCheckTask(BaseTask):
             # 静默：不输出OK日志
         except Exception as ERROR:
             self.add_result(Level.ERROR, f"保存DNS缓存失败: {ERROR}")
-    
+
 
     # 检查域名是否在缓存中
     # 检查域名是否在缓存中
     def _is_domain_cached(self, domain: str) -> bool:
         return domain in self._DNS_CACHE
-    
+
 
     # 保存失败的域名到日志文件：将失败域名记录为 D 项到统一缓存（追加且去重，不影响本轮标色）
     def _save_failed_domains(self, failed_domains: Set[str]) -> None:
@@ -288,19 +297,19 @@ class ASADomainCheckTask(BaseTask):
             # 静默：不输出OK日志
         except Exception as ERROR:
             self.add_result(Level.ERROR, f"保存失败域名到本地缓存失败: {ERROR}")
-    
+
 
     # 保存恢复的域名到DNSQueryDontDelete.log
     # 统一缓存下，恢复域名直接加入 S（特殊白名单）
     def _save_recovered_domains(self, recovered_domains: Set[str]) -> None:
         self._add_to_special_cache(recovered_domains)
-    
+
 
     # 将域名添加到特殊缓存：将域名添加到统一缓存(S)，自动去重
     def _add_to_special_cache(self, domains: Set[str]) -> None:
         if not domains:
             return
-        
+
 
         try:
             self._load_dns_cache()
@@ -317,7 +326,7 @@ class ASADomainCheckTask(BaseTask):
             # 静默：不输出OK日志
         except Exception as ERROR:
             self.add_result(Level.ERROR, f"添加域名到特殊白名单失败: {ERROR}")
-    
+
 
     # 检测DNS服务器可达性
     # 检测DNS服务器是否可达
@@ -333,11 +342,11 @@ class ASADomainCheckTask(BaseTask):
                 return True
             except Exception:
                 continue
-        
+
 
         self.add_result(Level.ERROR, f"所有DNS服务器不可达: {', '.join(self.DNS_SERVERS)}")
         return False
-    
+
 
     # 解析域名
     # 解析域名，返回(是否成功, 解析结果)
@@ -350,12 +359,15 @@ class ASADomainCheckTask(BaseTask):
             return False, str(error)
         except Exception as error:
             return False, str(error)
-    
+
 
     # 重写run方法：先检查DNS可达性，再处理所有平台
     # 执行ASA域名提取和检测任务
     def run(self) -> None:
-        # 加载DNS缓存
+        """执行ASA域名提取及检测任务
+
+        加载DNS缓存，处理所有站点，提取域名并进行DNS解析检测
+        """
         self._load_dns_cache()
         # 确保并清空脚本固定输出目录（每次运行前清空）
         try:
@@ -369,7 +381,7 @@ class ASADomainCheckTask(BaseTask):
                         pass
         except Exception:
             pass
-        
+
 
         # 先检查DNS服务器可达性；不可达时不中断，降级为“仅缓存+快速失败”模式
         if not self._check_dns_reachability():
@@ -379,24 +391,34 @@ class ASADomainCheckTask(BaseTask):
             socket.setdefaulttimeout(self.DNS_TIMEOUT)
         except Exception:
             pass
-        
+
 
         # 调用父类的run方法处理所有平台
         super().run()
         # 注意：脚本生成已改为在 run_single 中按站点触发，这里不再全局生成，避免重复输出
-    
+
 
     # 处理单个站点：提取域名并进行DNS检测（任务1）
     # 任务1：处理单个站点：从Excel配置中提取域名，进行DNS解析检测，将检测结果标色到 DOMAIN/ASADomainCheckTask/{date}-ASA域名提取及检测任务.xlsx，如果启用脚本生成，触发任务2（额外分支）
     def run_single(self, site: str) -> None:
+        """处理单个站点
+
+        从源Excel的该站点sheet中读取FW01列域名，进行DNS解析检测
+
+        Args:
+            site: 站点名称
+        """
         if site not in self._SITES_DATA:
             self.add_result(Level.ERROR, f"站点 {site} 数据不存在")
             return
-        
+
 
         try:
             # 从源Excel的该站点sheet中读取FW01列域名
-            source_excel_path = os.path.join(self.ACL_DIR, f"{self._TODAY}-关键设备配置备份输出EXCEL基础任务.xlsx")
+            source_excel_path = os.path.join(
+                self.ACL_DIR,
+                f"{self._TODAY}-关键设备配置备份输出EXCEL基础任务.xlsx"
+            )
             WORKBOOK_SRC = load_workbook(source_excel_path, read_only=True, data_only=True)
             if site not in WORKBOOK_SRC.sheetnames:
                 self.add_result(Level.ERROR, f"源Excel缺少sheet: {site}")
@@ -419,6 +441,14 @@ class ASADomainCheckTask(BaseTask):
             def collect_domains(
                 COL_IDX: int
             ) -> Tuple[Set[str], Dict[str, str], Set[int], Set[int], Set[int]]:
+                """从指定列收集域名
+
+                Args:
+                    COL_IDX: 列索引
+
+                Returns:
+                    元组：(域名集合, 强制原因字典, 红色单元格行号集合, 跳过行号集合, 其他行号集合)
+                """
                 domains: Set[str] = set()
                 forced_reason: Dict[str, str] = {}
                 forced_cell_red: Set[int] = set()
@@ -484,27 +514,35 @@ class ASADomainCheckTask(BaseTask):
                             next_text = str(NEXT_VALUE)
                             break
                         # 如果下一行定义了 host/range/subnet，则视为IP对象，跳过特殊标记
-                        if next_text is not None and re.search(r"\b(host|range|subnet)\b", next_text, re.IGNORECASE):
+                        if (next_text is not None and
+                                re.search(r"\b(host|range|subnet)\b", next_text, re.IGNORECASE)):
                             # 标记当前object行与下一host/range/subnet行为需跳过标色
                             skip_rows.add(ROW_INDEX + 2)
                             if ROW_INDEX + 3 <= total_rows:
                                 skip_rows.add(ROW_INDEX + 3)
                         # 如果下一行是 NAT 配置（nat (...) 或以 nat 开头），也不需要标色
-                        elif next_text is not None and re.match(r"^\s*nat\b", next_text, re.IGNORECASE):
+                        elif (next_text is not None and
+                                re.match(r"^\s*nat\b", next_text, re.IGNORECASE)):
                             skip_rows.add(ROW_INDEX + 2)
                             if ROW_INDEX + 3 <= total_rows:
                                 skip_rows.add(ROW_INDEX + 3)
-                        elif next_text is None or not re.search(r"\bfqdn\b", next_text, re.IGNORECASE):
+                        elif (next_text is None or
+                                not re.search(r"\bfqdn\b", next_text, re.IGNORECASE)):
                             # 缺少fqdn：域名名合法 -> 记录为缺少定义；非法名 -> 仅在无任何有效定义时不标域名、不标色
                             if self._DOMAIN_FULL_RE.fullmatch(NAME):
                                 domains.add(NAME)
-                                forced_reason[NAME] = "missing fqdn definition"
+                                forced_reason[NAME] = (
+                                    "missing fqdn definition"
+                                )
                             else:
                                 # 非法域名且无host/range/subnet，也需着色（其他底色+红字）
                                 other_rows.add(ROW_INDEX + 2)
                         else:
                             # 存在fqdn，若域名与对象名不一致则标红（无论对象名是否是域名）
-                            MATCH_FQDN = re.search(r"\bfqdn\b\s+(?:v\d+\s+)?([^\s]+)", next_text, re.IGNORECASE)
+                            MATCH_FQDN = re.search(
+                                r"\bfqdn\b\s+(?:v\d+\s+)?([^\s]+)",
+                                next_text, re.IGNORECASE
+                            )
                             if MATCH_FQDN:
                                 FQDN = MATCH_FQDN.group(1).strip()
                                 # 去除可能的端口拼接（如 example.com587 或 example.com:587）
@@ -515,19 +553,20 @@ class ASADomainCheckTask(BaseTask):
                                         forced_reason[FQDN] = "name/fqdn mismatch"
                                         forced_cell_red.add(ROW_INDEX + 2)  # 标记object行
                                         # 同时将fqdn所在行（ROW_INDEX+3）也标记为红底（若存在该行）
-                                        if ROW_INDEX + 3 <= total_rows:
+                                        if ROW_INDEX + 3 <= total_rows:  # noqa: E501
                                             forced_cell_red.add(ROW_INDEX + 3)
                                 else:
                                     forced_cell_red.add(ROW_INDEX + 2)
                 return domains, forced_reason, forced_cell_red, skip_rows, other_rows
 
-            fw01_domains, fw01_forced_reason, fw01_cell_red, fw01_skip, fw01_other = collect_domains(fw01_col)
+            (fw01_domains, fw01_forced_reason, fw01_cell_red, fw01_skip,
+                    fw01_other) = collect_domains(fw01_col)
             WORKBOOK_SRC.close()
-            
+
 
             # 解析域名
             fw01_results = self._resolve_domains(fw01_domains, forced_reasons=fw01_forced_reason)
-            
+
 
             # 以源Excel为模板复制到DOMAIN/ASADomainCheckTask，然后在复制品上标色
             source_excel_path = os.path.join(
@@ -552,7 +591,7 @@ class ASADomainCheckTask(BaseTask):
                 site, fw01_results, out_excel_path,
                 fw01_cell_red, fw01_skip, fw01_other
             )
-            
+
 
             # 仅在报告成功生成时输出汇总，否则跳过（避免先WARN后OK的矛盾输出）
             if success_report:
@@ -576,15 +615,21 @@ class ASADomainCheckTask(BaseTask):
                     if domains_for_scripts:
                         self._generate_domain_operation_scripts(site)
                 except Exception as error:
-                    self.add_result(Level.WARN, f"站点 {site} 任务2（脚本生成）触发失败: {error}")
-            
+                    self.add_result(
+                        Level.WARN,
+                        f"站点 {site} 任务2（脚本生成）触发失败: {error}"
+                    )
+
 
         except Exception as error:
             self.add_result(Level.ERROR, f"处理站点 {site} 失败: {error}")
-    
+
 
     # 批量解析域名：优先缓存，并发执行，设置超时防阻塞
-    def _resolve_domains(self, domains: Set[str], forced_reasons: Dict[str, str] = None) -> Dict[str, Tuple[bool, str]]:
+    def _resolve_domains(
+            self, domains: Set[str],
+            forced_reasons: Dict[str, str] = None
+    ) -> Dict[str, Tuple[bool, str]]:
         results: Dict[str, Tuple[bool, str]] = {}
         successful_domains: Set[str] = set()
         failed_domains: Set[str] = set()
@@ -603,6 +648,14 @@ class ASADomainCheckTask(BaseTask):
             max_workers = min(64, max(4, len(remaining)))
             # DNS解析工作函数：用于并发解析域名
             def worker(DOMAIN_NAME: str) -> Tuple[str, Tuple[bool, str]]:
+                """DNS解析工作函数
+
+                Args:
+                    DOMAIN_NAME: 域名
+
+                Returns:
+                    元组：(域名, (解析成功标志, IP地址或错误信息))
+                """
                 try:
                     ok, addr = self._resolve_domain(DOMAIN_NAME)
                     return DOMAIN_NAME, (ok, addr)
@@ -622,7 +675,7 @@ class ASADomainCheckTask(BaseTask):
                         successful_domains.add(RESOLVED_NAME)
                     else:
                         failed_domains.add(RESOLVED_NAME)
-        
+
 
         # 应用强制失败/原因（缺少fqdn、名称不一致等）
         for DOMAIN, reason in forced_reasons.items():
@@ -634,12 +687,12 @@ class ASADomainCheckTask(BaseTask):
         # 保存成功的域名到临时缓存
         if successful_domains:
             self._save_dns_cache(successful_domains)
-        
+
 
         # 保存失败的域名到统一缓存(D)
         if failed_domains:
             self._save_failed_domains(failed_domains)
-        
+
 
         return results
 
@@ -679,12 +732,12 @@ class ASADomainCheckTask(BaseTask):
             # 静默：未启用/路径为空/不存在/空文件等情况均不输出WARN
             return
 
-        date_str = datetime.now().strftime('%Y%m%d')
+        date_string = datetime.now().strftime('%Y%m%d')
         out_dir = self.SCRIPT_OUTPUT_ROOT
         os.makedirs(out_dir, exist_ok=True)
-        manual_excel = os.path.join(out_dir, f"{date_str}-ManualDomainRecovery.xlsx")
-        source_excel = os.path.join(self.ACL_DIR, f"{date_str}-关键设备配置备份输出EXCEL基础任务.xlsx")
-        
+        manual_excel = os.path.join(out_dir, f"{date_string}-ManualDomainRecovery.xlsx")
+        source_excel = os.path.join(self.ACL_DIR, f"{date_string}-关键设备配置备份输出EXCEL基础任务.xlsx")
+
 
         # 统一由 _generate_manual_recovery_excel 负责：标色 Excel + 基于标色生成脚本
         self._generate_manual_recovery_excel(source_excel, manual_excel, domains, site)
@@ -725,12 +778,15 @@ class ASADomainCheckTask(BaseTask):
                 pass
             # 基于“标色后的 FW01 列”从上到下生成回退脚本；再由回退推导操作脚本
             try:
-                workbookForReadStyles = load_workbook(excel_path, data_only=False)  # 需要读取样式，不能使用 read_only 和 data_only
-                if site not in workbookForReadStyles.sheetnames:
-                    workbookForReadStyles.close()
+                # 需要读取样式，不能使用 read_only 和 data_only
+                workbook_for_read_styles = load_workbook(
+                    excel_path, data_only=False
+                )
+                if site not in workbook_for_read_styles.sheetnames:
+                    workbook_for_read_styles.close()
                     self.add_result(Level.WARN, f"手工回收脚本生成跳过，sheet缺失: {site}")
                     return
-                worksheet = workbookForReadStyles[site]
+                worksheet = workbook_for_read_styles[site]
                 # 定位FW01列
                 fw01_col = None
                 for COLUMN in range(1, (worksheet.max_column or 1)+1):
@@ -739,24 +795,43 @@ class ASADomainCheckTask(BaseTask):
                         fw01_col = COLUMN
                         break
                 if not fw01_col:
-                    workbookForReadStyles.close()
+                    workbook_for_read_styles.close()
                     self.add_result(Level.WARN, f"手工回收脚本生成跳过，未找到FW01列: {site}")
                     return
                 # 脚本路径（站点级）
-                date_str = datetime.now().strftime('%Y%m%d')
+                date_string = datetime.now().strftime('%Y%m%d')
                 out_dir = self.SCRIPT_OUTPUT_ROOT
                 os.makedirs(out_dir, exist_ok=True)
-                op_path = os.path.join(out_dir, f"{date_str}-{site}-操作脚本.log")
-                rb_path = os.path.join(out_dir, f"{date_str}-{site}-回退脚本.log")
+                op_path = os.path.join(
+                    out_dir, f"{date_string}-{site}-操作脚本.log"
+                )
+                rb_path = os.path.join(
+                    out_dir, f"{date_string}-{site}-回退脚本.log"
+                )
                 # 判定单元格是否标色：红字或填充为特定底色即视为标色
                 def is_cell_colored(cell) -> bool:
+                    """检查单元格是否已着色
+
+                    Args:
+                        cell: 单元格对象
+
+                    Returns:
+                        如果单元格已着色则返回True，否则返回False
+                    """
                     try:
-                        FONT_COLOR = (cell.font and cell.font.color and str(cell.font.color.rgb or '')).upper()
-                        fill = (cell.fill and cell.fill.start_color and str(cell.fill.start_color.rgb or '')).upper()
-                        return (FONT_COLOR == 'FFFF0000') or (fill in {'FFFFF2CC', 'FFFFC7CE', 'FFEEEEEE', 'FF0000FF'})
+                        FONT_COLOR = (
+                            cell.font and cell.font.color and
+                            str(cell.font.color.rgb or '')
+                        ).upper()
+                        fill = (
+                            cell.fill and cell.fill.start_color and
+                            str(cell.fill.start_color.rgb or '')
+                        ).upper()
+                        return ((FONT_COLOR == 'FFFF0000') or
+                                (fill in {'FFFFF2CC', 'FFFFC7CE', 'FFEEEEEE', 'FF0000FF'}))
                     except Exception:
                         return False
-                
+
 
                 # 采用追加方式，避免覆盖其他站点或前一次结果
                 with (
@@ -771,7 +846,7 @@ class ASADomainCheckTask(BaseTask):
                     dom_to_groups: dict[str, set[str]] = {}  # 记录域名 -> 业务组集合（用于操作脚本）
                     group_to_domains_order: dict[str, list[str]] = {}  # 记录每个组中域名的出现顺序（按回退脚本顺序）
                     all_domains: set[str] = set()  # 记录所有需要删除的域名（包括单独的 object network）
-                    
+
 
                     for ROW in range(2, (worksheet.max_row or 1)+1):
                         cell = worksheet.cell(ROW, fw01_col)
@@ -782,20 +857,26 @@ class ASADomainCheckTask(BaseTask):
                                 break
                             continue
                         empty_streak = 0
-                        
+
 
                         is_colored = is_cell_colored(cell)
                         if not is_colored:
                             # 未标色行：仅更新 current_group（用于后续绑定行判断）
-                            MATCH_GROUP = re.match(r"^object-group\s+network\s+(.+)$", TEXT, re.IGNORECASE)
+                            MATCH_GROUP = re.match(
+                                r"^object-group\s+network\s+(.+)$",
+                                TEXT, re.IGNORECASE
+                            )
                             if MATCH_GROUP:
                                 current_group = MATCH_GROUP.group(1).strip()
                             continue
-                        
+
 
                         # 标色行处理
                         # object-group network：直接输出
-                        MATCH_GROUP = re.match(r"^object-group\s+network\s+(.+)$", TEXT, re.IGNORECASE)
+                        MATCH_GROUP = re.match(
+                            r"^object-group\s+network\s+(.+)$",
+                            TEXT, re.IGNORECASE
+                        )
                         if MATCH_GROUP:
                             current_group = MATCH_GROUP.group(1).strip()
                             if last_group_written != current_group:
@@ -804,30 +885,45 @@ class ASADomainCheckTask(BaseTask):
                                 rollbackLogFile.write(f"object-group network {current_group}\n")
                                 last_group_written = current_group
                             continue
-                        
+
 
                         # object network：输出 object + fqdn
-                        MATCH_OBJECT = re.match(r"^object\s+network\s+(.+)$", TEXT, re.IGNORECASE)
+                        MATCH_OBJECT = re.match(
+                            r"^object\s+network\s+(.+)$", TEXT, re.IGNORECASE
+                        )
                         if MATCH_OBJECT:
                             NAME = MATCH_OBJECT.group(1).strip()
                             # 找下一行的 fqdn
                             FQDN = None
-                            for ROW_INDEX in range(ROW+1, min(ROW+10, worksheet.max_row+1)):  # 最多向下查10行
-                                TEXT2 = str(worksheet.cell(ROW_INDEX, fw01_col).value or '').strip()
+                            # 最多向下查10行
+                            for ROW_INDEX in range(
+                                    ROW+1, min(ROW+10, worksheet.max_row+1)
+                            ):
+                                TEXT2 = str(
+                                    worksheet.cell(ROW_INDEX, fw01_col).value or ''
+                                ).strip()
                                 if TEXT2:
-                                    MATCH_FQDN = re.match(r"^fqdn\s+(?:v\d+\s+)?(.+)$", TEXT2, re.IGNORECASE)
+                                    MATCH_FQDN = re.match(
+                                        r"^fqdn\s+(?:v\d+\s+)?(.+)$",
+                                        TEXT2, re.IGNORECASE
+                                    )
                                     if MATCH_FQDN:
                                         FQDN = MATCH_FQDN.group(1).strip()
                                     break
                             DOMAIN = FQDN if FQDN else NAME
                             all_domains.add(DOMAIN)  # 记录需要删除的域名
-                            rollbackLogFile.write(f"object network {DOMAIN}\n")
+                            rollbackLogFile.write(
+                                f"object network {DOMAIN}\n"
+                            )
                             rollbackLogFile.write(f" fqdn {DOMAIN}\n\n")
                             continue
-                        
+
 
                         # network-object object：输出绑定，并记录映射
-                        MATCH_BIND = re.match(r"^network-object\s+object\s+(.+)$", TEXT, re.IGNORECASE)
+                        MATCH_BIND = re.match(
+                            r"^network-object\s+object\s+(.+)$",
+                            TEXT, re.IGNORECASE
+                        )
                         if MATCH_BIND and current_group:
                             DOMAIN = MATCH_BIND.group(1).strip()
                             # 记录映射（用于操作脚本）
@@ -847,7 +943,7 @@ class ASADomainCheckTask(BaseTask):
                                 rollbackLogFile.write(f"object-group network {current_group}\n")
                                 last_group_written = current_group
                             rollbackLogFile.write(f" network-object object {DOMAIN}\n")
-                    
+
 
                     # 2. 操作脚本：根据回退脚本反向生成（解绑 → 删除）
                     # 使用记录的顺序（按回退脚本顺序，保持一致性）
@@ -859,28 +955,30 @@ class ASADomainCheckTask(BaseTask):
                         for DOMAIN in domains_in_group:
                             operationLogFile.write(f" no network-object object {DOMAIN}\n")
                         operationLogFile.write("\n")
-                    
+
 
                     # 最后输出所有 object network 的删除命令（每个域名只删除一次）
                     for DOMAIN in sorted(all_domains):
                         operationLogFile.write(f"no object network {DOMAIN}\n")
 
                     self.add_result(Level.OK, f"站点 {site} 基于标色生成回退/操作脚本已完成")
-                workbookForReadStyles.close()
+                workbook_for_read_styles.close()
 
             except Exception as ERROR2:
                 self.add_result(Level.WARN, f"基于Excel生成手工回收脚本失败: {ERROR2}")
             self.add_result(Level.OK, f"生成手工回收域名Excel(模板标色): {excel_path}")
         except Exception as ERROR:
             self.add_result(Level.ERROR, f"生成手工回收域名Excel失败: {ERROR}")
-    
+
 
     # 生成Excel报告（在源Excel的FW01列原位标色）
     # 任务1和任务2共用此方法进行Excel标色
-    def _generate_excel_report(self, site: str, fw01_results: Dict[str, Tuple[bool, str]], output_path: str,
-                              fw01_cell_red: Set[int] = None,
-                              fw01_skip_rows: Set[int] = None,
-                              fw01_other_rows: Set[int] = None) -> bool:
+    def _generate_excel_report(
+            self, site: str, fw01_results: Dict[str, Tuple[bool, str]],
+            output_path: str, fw01_cell_red: Set[int] = None,
+                                fw01_skip_rows: Set[int] = None,
+            fw01_other_rows: Set[int] = None
+    ) -> bool:
         """任务1和任务2共用的Excel标色方法
         - 任务1：基于DNS检测结果标色（成功绿色，失败红色）
         - 任务2：基于手动输入的域名清单标色（全部标记为红色，用于回收）
@@ -918,8 +1016,13 @@ class ASADomainCheckTask(BaseTask):
         green_font = Font(color="FF00AA00")  # 深绿
         red_font = Font(color="FFFF0000")    # 红
         recycle_fill = PatternFill(fill_type="solid", start_color="FFFFF2CC", end_color="FFFFF2CC")
-        strict_red_fill = PatternFill(fill_type="solid", start_color="FFFFC7CE", end_color="FFFFC7CE")
-        other_fill = PatternFill(fill_type="solid", start_color="FFEEEEEE", end_color="FFEEEEEE")  # 其他：非法名且无定义
+        strict_red_fill = PatternFill(
+            fill_type="solid", start_color="FFFFC7CE", end_color="FFFFC7CE"
+        )
+        # 其他：非法名且无定义
+        other_fill = PatternFill(
+            fill_type="solid", start_color="FFEEEEEE", end_color="FFEEEEEE"
+        )
 
         # 定位FW01列（根据表头自动识别）
         fw01_col = None
@@ -938,7 +1041,10 @@ class ASADomainCheckTask(BaseTask):
         fw01_reason = {DOMAIN: MSG for DOMAIN, (_, MSG) in fw01_results.items()}
 
         # 遍历原有单元格进行标色（不改动单元格文本）
-        missing_fill = PatternFill(fill_type="solid", start_color="FF0000FF", end_color="FF0000FF")  # 纯蓝，用于缺少fqdn定义
+        # 纯蓝，用于缺少fqdn定义
+        missing_fill = PatternFill(
+            fill_type="solid", start_color="FF0000FF", end_color="FF0000FF"
+        )
         fw01_cell_red = fw01_cell_red or set()
         fw01_skip_rows = fw01_skip_rows or set()
         fw01_other_rows = fw01_other_rows or set()
@@ -963,7 +1069,7 @@ class ASADomainCheckTask(BaseTask):
                     DOMAIN = MATCH_BIND.group(1).strip()
                     if DOMAIN in fw01_hit and fw01_hit[DOMAIN] is False:
                         group_rows_to_color.add(current_group_row)
-        
+
 
         # 第二遍：进行标色
         current_group_row = None
@@ -1008,14 +1114,20 @@ class ASADomainCheckTask(BaseTask):
                         if self._DOMAIN_FULL_RE.fullmatch(CANDIDATE):
                             tokens.add(CANDIDATE)
                     if tokens:
-                        if any(fw01_hit.get(TOKEN) is False for TOKEN in tokens if TOKEN in fw01_hit):
+                        if any(
+                            fw01_hit.get(TOKEN) is False
+                            for TOKEN in tokens if TOKEN in fw01_hit
+                        ):
                             verdict = False
                             if any(
                                 (fw01_reason.get(TOKEN) == "missing fqdn definition")
                                 for TOKEN in tokens if TOKEN in fw01_reason
                             ):
                                 forced_missing = True
-                        elif any(fw01_hit.get(TOKEN) is True for TOKEN in tokens if TOKEN in fw01_hit):
+                        elif any(
+                            fw01_hit.get(TOKEN) is True
+                            for TOKEN in tokens if TOKEN in fw01_hit
+                        ):
                             verdict = True
                 # 标色：普通行
                 # 特例：全局配置项，如 "domain-name cisco.com" 不参与标色
@@ -1055,7 +1167,9 @@ class ASADomainCheckTask(BaseTask):
         return True
 
     # 如果目标Excel不存在，则以源Excel为模板复制数据结构到目标Excel：仅复制单元格值及sheet结构，不拷贝复杂样式，避免第三方复制限制
-    def _ensure_output_excel_from_source(self, source_path: str, output_path: str, force: bool = False) -> None:
+    def _ensure_output_excel_from_source(
+            self, source_path: str, output_path: str, force: bool = False
+    ) -> None:
         try:
             # 如目标不存在或损坏（0字节/不可读取），则从源复制
             need_create = True

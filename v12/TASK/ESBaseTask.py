@@ -7,7 +7,7 @@
 # 适用:ESLogstashTask / ESBaseTask / ESFlowTask
 #
 # 通用检查:
-# 根分区占用:df -h 解析 / 的 used%，与 servers.thresholds.disk_percent 比较（默认 WARN≥50，CRIT≥80）
+# 根分区占用:df -h 解析 / 的 used%，与 ESServer.thresholds.disk_percent 比较（从配置文件读取阈值）
 # 内存占用:free -m 解析 used/total 推算占用率，各类型有不同阈值:
 # - LOGSTASH:WARN≥50，CRIT≥80
 # - ES/FLOW:WARN≥80，CRIT≥90
@@ -25,7 +25,7 @@ from .TaskBase import CONFIG, require_keys
 # Elasticsearch服务器巡检任务类：专门用于Elasticsearch服务器的巡检，检查内存和磁盘使用情况
 class ESBaseTask(BaseLinuxServerTask):
     """Elasticsearch服务器巡检任务
-    
+
 
     专门用于Elasticsearch服务器的巡检，检查内存和磁盘使用情况
     """
@@ -40,10 +40,10 @@ class ESBaseTask(BaseLinuxServerTask):
             ["ESBaseTask"],
             "ESServer.thresholds.mem_percent"
         )
-        
+
 
         # 从配置文件读取ESBaseTask的内存阈值配置
         MEM_THRESHOLDS = CONFIG["ESServer"]["thresholds"]["mem_percent"]["ESBaseTask"]
-        super().__init__("ES服务器巡检", "ESBaseTask", 
+        super().__init__("ES服务器巡检", "ESBaseTask",
 
                         MEM_THRESHOLDS["warn"], MEM_THRESHOLDS["crit"])

@@ -8,8 +8,8 @@
 # - 失败会写入报告到 REPORT/<YYYYMMDD>_DependencyCheck.log，并退出（阻止巡检）
 # - 支持多个pip镜像源（官方、阿里云、清华），网络可达时自动安装缺失依赖
 # - 支持跨平台（Windows、Linux、macOS），自动识别平台并安装相应的系统依赖
-# - 支持 --check 参数：只检查依赖，不执行巡检
-# - 支持 --install 参数：安装所有依赖包
+# - 支持 -check 参数：只检查依赖，不执行巡检
+# - 支持 -install 参数：安装所有依赖包
 #
 # 第二部分：任务调度功能（原 Core.py）
 # - 多任务巡检（FXOS/FortiGate镜像/Oxidized配置抓取/各类Linux服务器SSH获取CPU内存硬盘指标/Kibana ESN9K日志扫描/Flow服务检查/ACL策略分析/服务检查），写入日报与任务明细
@@ -24,21 +24,23 @@
 #
 # REPORT文件格式优化:
 # - 添加时间隔离符号：==================== YYYY-MM-DD HH:MM:SS 运行 ====================
-# - 时间戳格式：#################### YYYY-MM-DD HH:MM:SS 运行 ####################
 # - 任务列表格式化：启用的任务每行一个，禁用的任务每行一个
-# - 最新运行追加到顶部：新内容在文件顶部，历史记录在底部
-# - 保持历史记录：每次运行保留之前的记录，便于查看历史
+# - 历史记录处理：默认模式（运行所有启用的任务）时，新内容在文件顶部，历史记录在底部；指定任务模式时，直接覆盖文件
+# - 保持历史记录：默认模式下每次运行保留之前的记录，便于查看历史
 #
 # 输出:REPORT/日期巡检日报.log（每日汇总报告），LOG/任务类名/YYYYMMDD-任务显示名.log（单任务详细日志，V10新结构）
 # 配置说明:支持task_switches任务开关控制，自动创建目录结构
+# 自动打开报告:使用 -任务名 参数运行指定任务时，任务完成后会自动打开报告文件（跨平台支持）
 
 # 导入标准库
 import json
 import os
+import platform
 import subprocess
 import sys
 import time
 import traceback
+
 from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
@@ -95,21 +97,21 @@ def _is_windows() -> bool:
     """判断是否为 Windows 平台"""
     return sys.platform == "win32"
 
-def _needs_playwright_system_deps() -> bool:
+def _needs_playwright_system_dependencies() -> bool:
     """判断是否需要安装 Playwright 系统依赖（Linux 和 macOS 需要，Windows 不需要）"""
     return sys.platform != "win32"
 
 # 获取项目根目录路径
 PROJECT_ROOT = Path(__file__).resolve().parent
-CONFIG_FILE = PROJECT_ROOT / "YAML" / "Config.yaml"
+CONFIGURATION_DOCUMENT_PATH = PROJECT_ROOT / "YAML" / "Config.yaml"
 
 # 读取配置文件
-with open(CONFIG_FILE, "r", encoding="utf-8") as CONFIG_FILE_HANDLE:
-    CONFIG = yaml.safe_load(CONFIG_FILE_HANDLE)
+with open(CONFIGURATION_DOCUMENT_PATH, "r", encoding="utf-8") as CONFIGURATION_FILE_HANDLE:
+    CONFIGURATION_DATA = yaml.safe_load(CONFIGURATION_FILE_HANDLE)
 
 # 从配置中读取依赖包，转换为所需格式
-DEPENDENCIES = CONFIG.get("dependencies", {})
-REQUIRED_PY_PKGS = [
+DEPENDENCIES = CONFIGURATION_DATA.get("dependencies", {})
+REQUIRED_PYTHON_PACKAGES = [
     (import_name, package_name, f"{package_name} 包")
     for import_name, package_name in DEPENDENCIES.items()
 ]
@@ -128,7 +130,7 @@ def _check_pip_network() -> Tuple[bool, Optional[str]]:
         import urllib.request
         import urllib.error
 
-        TEST_URLS = CONFIG.get("pip_mirrors", [])
+        TEST_URLS = CONFIGURATION_DATA.get("pip_mirrors", [])
         for URL in TEST_URLS:
             try:
                 with urllib.request.urlopen(URL, timeout=5) as RESPONSE:
@@ -146,7 +148,7 @@ def _install_packages(packages: List[str]) -> Tuple[bool, str]:
         return True, "无需安装"
 
     COMMAND = [sys.executable, "-m", "pip", "install", "--upgrade"] + packages
-    RESULT = subprocess.run(
+    EXECUTION_OUTCOME = subprocess.run(
         COMMAND,
         capture_output=True,
         text=True,
@@ -154,14 +156,14 @@ def _install_packages(packages: List[str]) -> Tuple[bool, str]:
         errors='ignore'
     )
 
-    if RESULT.returncode == 0:
+    if EXECUTION_OUTCOME.returncode == 0:
         return True, "依赖包安装成功"
-    return False, f"安装失败，返回码: {RESULT.returncode}\n错误信息: {RESULT.stderr}"
+    return False, f"安装失败，返回码: {EXECUTION_OUTCOME.returncode}\n错误信息: {EXECUTION_OUTCOME.stderr}"
 
 def _upgrade_pip() -> Tuple[bool, str]:
     """升级 pip 到最新版本"""
     COMMAND = [sys.executable, "-m", "pip", "install", "--upgrade", "pip"]
-    RESULT = subprocess.run(
+    EXECUTION_OUTCOME = subprocess.run(
         COMMAND,
         capture_output=True,
         text=True,
@@ -169,19 +171,19 @@ def _upgrade_pip() -> Tuple[bool, str]:
         errors='ignore'
     )
 
-    if RESULT.returncode == 0:
+    if EXECUTION_OUTCOME.returncode == 0:
         return True, "pip 升级成功"
-    return False, f"pip 升级失败，返回码: {RESULT.returncode}\n错误信息: {RESULT.stderr}"
+    return False, f"pip 升级失败，返回码: {EXECUTION_OUTCOME.returncode}\n错误信息: {EXECUTION_OUTCOME.stderr}"
 
 def _install_playwright_deps() -> Tuple[bool, str]:
     """安装 Playwright 系统依赖（Linux 和 macOS 需要，Windows 不需要）"""
     if _is_windows():
         return True, "Windows 平台无需安装系统依赖"
-    
+
 
     PLATFORM_NAME = _get_platform_name()
     COMMAND = [sys.executable, "-m", "playwright", "install-deps"]
-    RESULT = subprocess.run(
+    EXECUTION_OUTCOME = subprocess.run(
         COMMAND,
         capture_output=True,
         text=True,
@@ -189,16 +191,16 @@ def _install_playwright_deps() -> Tuple[bool, str]:
         errors='ignore'
     )
 
-    if RESULT.returncode == 0:
+    if EXECUTION_OUTCOME.returncode == 0:
         return True, f"Playwright 系统依赖安装成功 ({PLATFORM_NAME})"
     return False, (
         f"Playwright 系统依赖安装失败 ({PLATFORM_NAME})，"
-        f"返回码: {RESULT.returncode}\n错误信息: {RESULT.stderr}"
+        f"返回码: {EXECUTION_OUTCOME.returncode}\n错误信息: {EXECUTION_OUTCOME.stderr}"
     )
 
 def _install_playwright_chromium() -> Tuple[bool, str]:
     COMMAND = [sys.executable, "-m", "playwright", "install", "chromium"]
-    RESULT = subprocess.run(
+    EXECUTION_OUTCOME = subprocess.run(
         COMMAND,
         capture_output=True,
         text=True,
@@ -206,9 +208,12 @@ def _install_playwright_chromium() -> Tuple[bool, str]:
         errors='ignore'
     )
 
-    if RESULT.returncode == 0:
+    if EXECUTION_OUTCOME.returncode == 0:
         return True, "chromium 浏览器安装成功"
-    return False, f"chromium 安装失败，返回码: {RESULT.returncode}\n错误信息: {RESULT.stderr}"
+    return False, (
+        f"chromium 安装失败，返回码: {EXECUTION_OUTCOME.returncode}\n"
+        f"错误信息: {EXECUTION_OUTCOME.stderr}"
+    )
 
 def _check_playwright_chromium() -> Tuple[bool, Optional[str]]:
     try:
@@ -220,10 +225,12 @@ def _check_playwright_chromium() -> Tuple[bool, Optional[str]]:
     except Exception as e:
         return False, f"{e.__class__.__name__}: {e}"
 
-def _format_missing_details(missing: List[str], details: List[str], prefix: str) -> str:
-    NOW = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+def _format_missing_information(
+        missing: List[str], details: List[str], prefix: str
+) -> str:
+    CURRENT_DATETIME = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     lines = []
-    lines.append(f"=== [{NOW}] {prefix} ===")
+    lines.append(f"=== [{CURRENT_DATETIME}] {prefix} ===")
     lines.append("")
     lines.append("缺失项：")
     lines.extend(details)
@@ -235,7 +242,7 @@ def check_runtime_dependencies() -> Tuple[bool, str]:
     MISSING: List[str] = []
     DETAILS: List[str] = []
 
-    for mod, pkg, desc in REQUIRED_PY_PKGS:
+    for mod, pkg, desc in REQUIRED_PYTHON_PACKAGES:
         OK, ERR = _try_import(mod)
         if not OK:
             MISSING.append(pkg)
@@ -300,17 +307,17 @@ def check_runtime_dependencies() -> Tuple[bool, str]:
 # 写入依赖检查报告：将报告内容写入REPORT目录下的文件
 def write_dependency_report(REPORT: str) -> None:
     """将依赖检查报告写入REPORT目录下的文件
-    
+
 
     Args:
         REPORT: 报告内容字符串
     """
     try:
         DATE = datetime.now().strftime("%Y%m%d")
-        OUT_DIR = PROJECT_ROOT / "REPORT"
-        os.makedirs(OUT_DIR, exist_ok=True)
-        PATH = os.path.join(OUT_DIR, f"{DATE}_DependencyCheck.log")
-        with open(PATH, "a", encoding="utf-8") as f:
+        OUTPUT_DIRECTORY = PROJECT_ROOT / "REPORT"
+        os.makedirs(OUTPUT_DIRECTORY, exist_ok=True)
+        OUTPUT_DOCUMENT_PATH = os.path.join(OUTPUT_DIRECTORY, f"{DATE}_DependencyCheck.log")
+        with open(OUTPUT_DOCUMENT_PATH, "a", encoding="utf-8") as f:
             f.write(REPORT + "\n")
     except Exception:
         print("[预检] 写入报告文件失败：\n" + traceback.format_exc(), file=sys.stderr)
@@ -324,13 +331,13 @@ def install_all_dependencies() -> bool:
     2. 安装所有 Python 依赖包
     3. 安装 Playwright 系统依赖（Linux 和 macOS，Windows 不需要）
     4. 安装 Playwright Chromium 浏览器
-    
+
 
     支持平台：Windows、Linux、macOS
     """
     PLATFORM_NAME = _get_platform_name()
     print(f"=== 正在安装巡检依赖库 ({PLATFORM_NAME}) ===")
-    
+
 
     # 1. 升级 pip
     print("正在升级 pip...")
@@ -339,17 +346,17 @@ def install_all_dependencies() -> bool:
         print(f"警告：pip 升级失败: {MSG}")
     else:
         print(MSG)
-    
+
 
     # 2. 获取所有依赖包名称列表
-    ALL_PACKAGES = sorted([package_name for _, package_name, _ in REQUIRED_PY_PKGS])
-    print(f"\n正在安装 Python 依赖包: {', '.join(ALL_PACKAGES)}")
-    OK, MSG = _install_packages(ALL_PACKAGES)
+    ALL_PACKAGE_NAMES = sorted([package_name for _, package_name, _ in REQUIRED_PYTHON_PACKAGES])
+    print(f"\n正在安装 Python 依赖包: {', '.join(ALL_PACKAGE_NAMES)}")
+    OK, MSG = _install_packages(ALL_PACKAGE_NAMES)
     if not OK:
         print(f"错误：依赖包安装失败: {MSG}")
         return False
     print(MSG)
-    
+
 
     # 3. 安装 Playwright 系统依赖（Linux 和 macOS 需要，Windows 不需要）
     if _needs_playwright_system_deps():
@@ -360,7 +367,7 @@ def install_all_dependencies() -> bool:
             print("提示：某些功能可能无法正常工作，建议手动安装系统依赖")
         else:
             print(MSG)
-    
+
 
     # 4. 安装 Playwright Chromium 浏览器
     print("\n正在安装 Playwright 浏览器（Chromium）...")
@@ -369,7 +376,7 @@ def install_all_dependencies() -> bool:
         print(f"错误：Chromium 安装失败: {MSG}")
         return False
     print(MSG)
-    
+
 
     print(f"\n=== 安装完成 ({PLATFORM_NAME}) ===")
     return True
@@ -378,39 +385,57 @@ def install_all_dependencies() -> bool:
 # 第二部分：任务调度功能（原 Core.py）
 # ============================================================================
 
+# 跨平台打开文件：根据操作系统使用相应的命令打开文件
+def _open_document_path(file_path_argument: str) -> None:
+    """跨平台打开文件
+
+    Args:
+        file_path_argument: 要打开的文件路径
+    """
+    try:
+        OPERATING_SYSTEM_NAME = platform.system()
+        if OPERATING_SYSTEM_NAME == "Darwin":  # macOS
+            subprocess.run(["open", file_path_argument], check=False)
+        elif OPERATING_SYSTEM_NAME == "Windows":  # Windows
+            subprocess.run(["start", file_path_argument], shell=True, check=False)
+        else:  # Linux 和其他 Unix 系统
+            subprocess.run(["xdg-open", file_path_argument], check=False)
+    except Exception as e:
+        print(f"警告：无法自动打开文件 {file_path_argument}: {e}")
+
 # 动态导入所有任务类
-TASK_MODULES = {}
+TASK_MODULE_DICTIONARY = {}
 for TASK_NAME in TASK_CLASSES:
     try:
-        TASK_MODULE = __import__(f'TASK.{TASK_NAME}', fromlist=[TASK_NAME])
-        TASK_MODULES[TASK_NAME] = getattr(TASK_MODULE, TASK_NAME)
+        IMPORTED_TASK_MODULE = __import__(f'TASK.{TASK_NAME}', fromlist=[TASK_NAME])
+        TASK_MODULE_DICTIONARY[TASK_NAME] = getattr(IMPORTED_TASK_MODULE, TASK_NAME)
     except Exception as e:
         print(f"警告：无法导入任务类 {TASK_NAME}: {e}")
 
 # 只检查Core需要的通用配置
-require_keys(CONFIG, ["settings"], "root")
+require_keys(CONFIGURATION_DATA, ["settings"], "root")
 
-SHOW_PROGRESS = bool(CONFIG["settings"].get("show_progress", True))
+SHOW_PROGRESS = bool(CONFIGURATION_DATA["settings"].get("show_progress", True))
 
 # 主调度器：执行所有启用的巡检任务
 def run_inspection_tasks(specified_tasks: Optional[List[str]] = None):
     """执行所有启用的巡检任务并生成日报
-    
+
 
     Args:
         specified_tasks: 如果指定，只运行这些任务（忽略Config.yaml中的开关设置）
     """
     TODAY = datetime.now().strftime("%Y%m%d")
-    SETTINGS = (CONFIG.get("settings") or {})
-    BASE_LOG_DIR = SETTINGS.get("log_dir", "LOG")
+    SETTINGS = (CONFIGURATION_DATA.get("settings") or {})
+    BASE_LOG_DIRECTORY_PATH = SETTINGS.get("log_dir", "LOG")
     # V10新结构：不再使用日期目录，改为任务目录（在任务执行时创建）
-    REPORT_DIR = SETTINGS.get("report_dir", "REPORT")
+    REPORT_DIRECTORY = SETTINGS.get("report_dir", "REPORT")
     # 创建报告目录（如果目录已存在则不报错）
-    os.makedirs(REPORT_DIR, exist_ok=True)
-    DAILY_REPORT = os.path.join(REPORT_DIR, f"{TODAY}巡检日报.log")
+    os.makedirs(REPORT_DIRECTORY, exist_ok=True)
+    DAILY_REPORT = os.path.join(REPORT_DIRECTORY, f"{TODAY}巡检日报.log")
 
     # 获取任务开关配置
-    TASK_SWITCHES = CONFIG.get("task_switches", {})
+    TASK_SWITCHES = CONFIGURATION_DATA.get("task_switches", {})
 
     # 动态创建任务实例（根据开关配置）
     TASKS = []
@@ -425,38 +450,37 @@ def run_inspection_tasks(specified_tasks: Optional[List[str]] = None):
             print(f"可用的任务: {', '.join(sorted(TASK_CLASSES))}")
             sys.exit(1)
         # 只处理指定的任务
-        TASK_CLASSES_TO_PROCESS = specified_tasks
+        TASK_CLASS_NAMES_TO_PROCESS = specified_tasks
     else:
         # 处理所有任务
-        TASK_CLASSES_TO_PROCESS = TASK_CLASSES
+        TASK_CLASS_NAMES_TO_PROCESS = TASK_CLASSES
 
-    for TASK_NAME in TASK_CLASSES_TO_PROCESS:
+    for TASK_NAME in TASK_CLASS_NAMES_TO_PROCESS:
         # 如果指定了任务列表，忽略Config.yaml中的开关设置
         if specified_tasks:
-            IS_ENABLED = True
+            TASK_IS_ENABLED = True
         else:
             # 检查任务开关，默认为 True（启用）
-            IS_ENABLED = TASK_SWITCHES.get(TASK_NAME, True)
+            TASK_IS_ENABLED = TASK_SWITCHES.get(TASK_NAME, True)
 
-        if not IS_ENABLED:
+        if not TASK_IS_ENABLED:
             DISABLED_TASKS.append(TASK_NAME)
             continue
 
         try:
-            TASK_CLASS = TASK_MODULES[TASK_NAME]
+            TASK_CLASS_REFERENCE = TASK_MODULE_DICTIONARY[TASK_NAME]
             # 所有任务类统一调用，特殊参数处理在各自类内部完成
-            TASK_INSTANCE = TASK_CLASS()
+            TASK_INSTANCE_OBJECT = TASK_CLASS_REFERENCE()
 
-            TASKS.append(TASK_INSTANCE)
+            TASKS.append(TASK_INSTANCE_OBJECT)
             ENABLED_TASKS.append(TASK_NAME)
         except Exception as e:
             print(f"警告：无法创建任务实例 {TASK_NAME}: {e}")
 
     # 任务名称映射
-    TASK_NAMES = {
+    TASK_DISPLAY_NAMES = {
         "FXOSWebTask": "FXOSWebTask-FXOS设备Web巡检",
-        "MirrorFortiGateTask": "MirrorFortiGateTask-FortiGate设备镜像巡检", 
-
+        "MirrorFortiGateTask": "MirrorFortiGateTask-FortiGate设备镜像巡检",
         "OxidizedTask": "OxidizedTask-Oxidized配置备份巡检",
         "ESLogstashTask": "ESLogstashTask-Logstash服务器巡检",
         "ESBaseTask": "ESBaseTask-Elasticsearch基础巡检",
@@ -473,7 +497,7 @@ def run_inspection_tasks(specified_tasks: Optional[List[str]] = None):
         "ServiceCheckTask": "ServiceCheckTask-服务检查任务(NTP TACACS+)",
         "LogRecyclingTask": "LogRecyclingTask-日志回收任务（月底最后一天执行）"
     }
-    
+
 
     # 打印任务开关状态
     if ENABLED_TASKS:
@@ -484,7 +508,7 @@ def run_inspection_tasks(specified_tasks: Optional[List[str]] = None):
     print()  # 空行分隔
 
     # 记录开始时间
-    START_TIME = time.time()
+    START_TIMESTAMP_VALUE = time.time()
 
     # 检查REPORT文件是否存在，如果存在则读取现有内容
     # 指定任务模式：直接覆盖，不保留历史记录
@@ -492,11 +516,11 @@ def run_inspection_tasks(specified_tasks: Optional[List[str]] = None):
     if not specified_tasks and os.path.exists(DAILY_REPORT):
         with open(DAILY_REPORT, "r", encoding="utf-8") as f:
             EXISTING_CONTENT = f.read()
-    
+
 
     # 生成时间戳
     TIMESTAMP = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    
+
 
     with open(DAILY_REPORT, "w", encoding="utf-8") as REPORT:
         # 写入时间隔离符号和任务开关状态
@@ -542,10 +566,12 @@ def run_inspection_tasks(specified_tasks: Optional[List[str]] = None):
             # V10新结构：日志文件保存在任务目录下，文件名格式为 YYYYMMDD-任务显示名.log
             # 目录名使用类名，文件名使用任务显示名（例如：FXOS WEB 巡检）
             TASK_CLASS_NAME = TASK.__class__.__name__
-            TASK_LOG_DIR = os.path.join(BASE_LOG_DIR, TASK_CLASS_NAME)
-            os.makedirs(TASK_LOG_DIR, exist_ok=True)
-            TASK_LOG_PATH = os.path.join(TASK_LOG_DIR, f"{TODAY}-{TASK.NAME}.log")
-            with open(TASK_LOG_PATH, "w", encoding="utf-8") as DETAIL_FILE:
+            TASK_LOG_DIRECTORY_LOCATION = os.path.join(BASE_LOG_DIRECTORY_PATH, TASK_CLASS_NAME)
+            os.makedirs(TASK_LOG_DIRECTORY_LOCATION, exist_ok=True)
+            TASK_LOG_DOCUMENT_LOCATION = os.path.join(
+                TASK_LOG_DIRECTORY_LOCATION, f"{TODAY}-{TASK.NAME}.log"
+            )
+            with open(TASK_LOG_DOCUMENT_LOCATION, "w", encoding="utf-8") as DETAIL_FILE:
                 for RESULT in TASK.RESULTS:
                     LINE = RESULT.message
                     if RESULT.meta:
@@ -558,41 +584,55 @@ def run_inspection_tasks(specified_tasks: Optional[List[str]] = None):
             }
 
         # 计算总耗时
-        END_TIME = time.time()
-        TOTAL_ELAPSED = END_TIME - START_TIME
+        END_TIMESTAMP_VALUE = time.time()
+        TOTAL_ELAPSED = END_TIMESTAMP_VALUE - START_TIMESTAMP_VALUE
         TOTAL_MINUTES = int(TOTAL_ELAPSED // 60)
         TOTAL_SECONDS = int(TOTAL_ELAPSED % 60)
-        
+
 
         # 格式化总耗时字符串
         if TOTAL_MINUTES > 0:
-            ELAPSED_STR = f"{TOTAL_MINUTES}分{TOTAL_SECONDS:02d}秒"
+            ELAPSED_TIME_TEXT = f"{TOTAL_MINUTES}分{TOTAL_SECONDS:02d}秒"
         else:
-            ELAPSED_STR = f"{TOTAL_SECONDS}秒"
+            ELAPSED_TIME_TEXT = f"{TOTAL_SECONDS}秒"
 
         REPORT.write("\n=== 巡检总汇 ===\n")
         REPORT.write(
             f"严重 {TOTAL_COUNTER['CRIT']}, 告警 {TOTAL_COUNTER['WARN']}, "
             f"错误 {TOTAL_COUNTER['ERROR']}, 正常 {TOTAL_COUNTER['OK']}\n")
         REPORT.write(f"{TODAY} 全部任务完成\n")
-        REPORT.write(f"总耗时: {ELAPSED_STR}\n")
+        REPORT.write(f"总耗时: {ELAPSED_TIME_TEXT}\n")
         # V10新结构：日志输出在各任务目录下，此处记录根目录
-        REPORT.write(f"日志目录: {BASE_LOG_DIR}\n")
-        
+        REPORT.write(f"日志目录: {BASE_LOG_DIRECTORY_PATH}\n")
+
 
         # 如果有现有内容，追加到文件末尾
         if EXISTING_CONTENT:
             REPORT.write("\n")
             REPORT.write(EXISTING_CONTENT)
-        
+
 
         # 终端输出总耗时
         if SHOW_PROGRESS:
             tqdm.write(f"\n=== 全部任务完成 ===")
-            tqdm.write(f"总耗时: {ELAPSED_STR}")
+            tqdm.write(f"总耗时: {ELAPSED_TIME_TEXT}")
         else:
             print(f"\n=== 全部任务完成 ===")
-            print(f"总耗时: {ELAPSED_STR}")
+            print(f"总耗时: {ELAPSED_TIME_TEXT}")
+
+        # 如果是指定任务模式，自动打开报告文件
+        if specified_tasks and os.path.exists(DAILY_REPORT):
+            try:
+                _open_document_path(DAILY_REPORT)
+                if SHOW_PROGRESS:
+                    tqdm.write(f"已自动打开报告文件: {DAILY_REPORT}")
+                else:
+                    print(f"已自动打开报告文件: {DAILY_REPORT}")
+            except Exception as e:
+                if SHOW_PROGRESS:
+                    tqdm.write(f"警告：无法自动打开报告文件: {e}")
+                else:
+                    print(f"警告：无法自动打开报告文件: {e}")
 
 # ============================================================================
 # 第三部分：主程序入口
@@ -625,14 +665,19 @@ def main():
 if __name__ == "__main__":
     # 支持多种运行模式：
     # 1. 直接运行：执行完整流程（依赖检查 + 巡检任务）
-    # 2. --check 参数：只检查依赖，不执行巡检
-    # 3. --install 参数：安装所有依赖包
+    #    示例: python Main.py
+    # 2. -check 参数：只检查依赖，不执行巡检
+    #    示例: python Main.py -check
+    # 3. -install 参数：安装所有依赖包
+    #    示例: python Main.py -install
     # 4. -任务名 参数：只运行指定的任务（可指定多个，忽略Config.yaml中的开关设置）
-    
+    #    示例: python Main.py -ASATempnetworkCheckTask
+    #    示例: python Main.py -ACLArpCheckTask -ACLDupCheckTask
+
 
     if len(sys.argv) > 1:
-        ARG = sys.argv[1]
-        if ARG == "--check":
+        COMMAND_LINE_PARAMETER = sys.argv[1]
+        if COMMAND_LINE_PARAMETER == "-check":
             # 检查模式：只检查不安装
             PLATFORM_NAME = _get_platform_name()
             print(f"=== 依赖检查模式 ({PLATFORM_NAME}) ===\n")
@@ -641,13 +686,13 @@ if __name__ == "__main__":
                 print(MSG)
                 sys.exit(1)
             print(MSG)
-        elif ARG == "--install":
+        elif COMMAND_LINE_PARAMETER == "-install":
             # 安装模式：执行完整安装流程
             SUCCESS = install_all_dependencies()
             if not SUCCESS:
                 print(f"\n错误：安装过程中出现错误，请检查上述输出信息")
                 sys.exit(1)
-            
+
 
             # 安装完成后进行验证
             print("\n=== 验证安装结果 ===")
@@ -656,24 +701,24 @@ if __name__ == "__main__":
                 print(f"\n警告：安装后仍有问题:\n{MSG}")
                 sys.exit(1)
             print(MSG)
-        elif ARG.startswith("-") and len(ARG) > 1:
+        elif COMMAND_LINE_PARAMETER.startswith("-") and len(COMMAND_LINE_PARAMETER) > 1:
             # 多任务模式：收集所有以 "-" 开头的任务名
             SPECIFIED_TASKS = []
             for ARG_ITEM in sys.argv[1:]:
                 if ARG_ITEM.startswith("-") and len(ARG_ITEM) > 1:
-                    TASK_NAME = ARG_ITEM[1:]  # 去掉开头的 "-"
-                    SPECIFIED_TASKS.append(TASK_NAME)
+                    TASK_NAME_FROM_PARAMETER = ARG_ITEM[1:]  # 去掉开头的 "-"
+                    SPECIFIED_TASKS.append(TASK_NAME_FROM_PARAMETER)
                 else:
                     # 如果遇到非 "-" 开头的参数，说明参数格式错误
                     print(f"错误：参数格式错误。任务名必须以 '-' 开头: {ARG_ITEM}")
                     print("用法: python Main.py -任务名1 -任务名2 ...")
                     sys.exit(1)
-            
+
 
             if not SPECIFIED_TASKS:
                 print("错误：未指定任何任务")
                 sys.exit(1)
-            
+
 
             # 先执行依赖预检
             _run_preflight_or_exit()
@@ -685,11 +730,11 @@ if __name__ == "__main__":
                 print(f"指定的任务: {', '.join(SPECIFIED_TASKS)}\n")
             run_inspection_tasks(specified_tasks=SPECIFIED_TASKS)
         else:
-            print(f"未知参数: {ARG}")
+            print(f"未知参数: {COMMAND_LINE_PARAMETER}")
             print("用法:")
             print("  python Main.py                          # 运行所有启用的任务")
-            print("  python Main.py --check                  # 只检查依赖")
-            print("  python Main.py --install                # 安装所有依赖包")
+            print("  python Main.py -check                   # 只检查依赖")
+            print("  python Main.py -install                 # 安装所有依赖包")
             print(
                 "  python Main.py -任务名                   "
                 "# 只运行指定的任务（例如：-ASATempnetworkCheckTask）"

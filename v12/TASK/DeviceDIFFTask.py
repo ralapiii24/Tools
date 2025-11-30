@@ -21,19 +21,18 @@
 # - 周:{今天}-周DIFF-关键设备DIFF.xlsx
 # - 月:{今天}-月DIFF-关键设备DIFF.xlsx
 #
-# 配置说明:支持Ignore_DIFF.yaml忽略规则
+# 配置说明:支持YAML/Ignore_DIFF.yaml忽略规则
 
 # 导入标准库
 import datetime as dt
 import os
 import re
 
-# 导入第三方库
-import yaml
 from difflib import unified_diff
 from typing import List, Optional, Tuple
 
 # 导入第三方库
+import yaml
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Alignment, Font
 
@@ -43,11 +42,11 @@ from .TaskBase import BaseTask, Level
 # 关键设备差异对比任务类：对比设备配置的历史差异并生成Excel报告
 class DeviceDIFFTask(BaseTask):
     """关键设备差异对比任务
-    
+
 
     自动选日期做DIFF，对比不同时期的设备配置变化
     """
-    
+
 
     # 初始化关键设备差异对比任务：设置任务名称和运行期缓存
     def __init__(self):
@@ -71,7 +70,7 @@ class DeviceDIFFTask(BaseTask):
         self._SUM_ADDED = 0
         self._SUM_REMOVED = 0
         self._SUM_CHANGED = 0
-        
+
 
         # 加载忽略规则
         self._IGNORE_RULES = self._load_ignore_rules()
@@ -79,10 +78,10 @@ class DeviceDIFFTask(BaseTask):
     # 计算对比计划并返回Sheet列表：根据日期逻辑确定对比文件并返回Sheet名称列表
     def items(self):
         """计算对比计划并返回Sheet列表
-        
+
 
         根据日期逻辑确定对比文件并返回Sheet名称列表
-        
+
 
         Returns:
             list: Sheet名称列表
@@ -91,20 +90,20 @@ class DeviceDIFFTask(BaseTask):
         # 统一目录创建逻辑：在items中创建输出目录
         # 创建输出目录（如果目录已存在则不报错）
         os.makedirs(self.OUTPUT_DIR, exist_ok=True)
-        
 
-        TODAY_DT = dt.datetime.now()
-        TODAY = TODAY_DT.date()
-        TODAY_STR = TODAY_DT.strftime("%Y%m%d")
+
+        TODAY_DATETIME = dt.datetime.now()
+        TODAY = TODAY_DATETIME.date()
+        TODAY_STRING = TODAY_DATETIME.strftime("%Y%m%d")
 
         # 格式化路径：根据日期格式化文件路径
-        def _format_path(YMD: str) -> str:
+        def _format_file_path(YMD: str) -> str:
             """格式化文件路径
-            
+
 
             Args:
                 YMD: 日期字符串（YYYYMMDD格式）
-                
+
 
             Returns:
                 str: 文件路径
@@ -115,41 +114,41 @@ class DeviceDIFFTask(BaseTask):
 
         # 日：今天 vs 昨天（最多往前找3天，找到最新的文件即可）
         # 先检查今天文件是否存在
-        if os.path.isfile(_format_path(TODAY_STR)):
+        if os.path.isfile(_format_file_path(TODAY_STRING)):
             # 从昨天开始往前找，最多找3天
             for DAYS_BACK in range(1, 4):  # 1天前、2天前、3天前
                 CHECK_DATE = TODAY - dt.timedelta(days=DAYS_BACK)
-                CHECK_DATE_STR = CHECK_DATE.strftime("%Y%m%d")
-                if os.path.isfile(_format_path(CHECK_DATE_STR)):
-                    PLANS.append((CHECK_DATE_STR, TODAY_STR, None))
+                CHECK_DATE_STRING = CHECK_DATE.strftime("%Y%m%d")
+                if os.path.isfile(_format_file_path(CHECK_DATE_STRING)):
+                    PLANS.append((CHECK_DATE_STRING, TODAY_STRING, None))
                     break
 
         # 周：仅周日，从周一顺延至周六找最早有文件
         if TODAY.weekday() == 6:  # Sunday
             MONDAY = TODAY - dt.timedelta(days=6)
-            CUR = MONDAY
-            WEEK_END = TODAY - dt.timedelta(days=1)
+            CURRENT = MONDAY
+            WEEK_END_DATE = TODAY - dt.timedelta(days=1)
             FOUND = None
-            while CUR <= WEEK_END:
-                if os.path.isfile(_format_path(CUR.strftime("%Y%m%d"))):
-                    FOUND = CUR
+            while CURRENT <= WEEK_END_DATE:
+                if os.path.isfile(_format_file_path(CURRENT.strftime("%Y%m%d"))):
+                    FOUND = CURRENT
                     break
-                CUR += dt.timedelta(days=1)
-            if FOUND and os.path.isfile(_format_path(TODAY_STR)):
-                PLANS.append((FOUND.strftime("%Y%m%d"), TODAY_STR, "周DIFF"))
+                CURRENT += dt.timedelta(days=1)
+            if FOUND and os.path.isfile(_format_file_path(TODAY_STRING)):
+                PLANS.append((FOUND.strftime("%Y%m%d"), TODAY_STRING, "周DIFF"))
 
         # 月：仅月末，从 1 号顺延至昨日找最早有文件
         if (TODAY + dt.timedelta(days=1)).month != TODAY.month:
             FIRST = TODAY.replace(day=1)
-            CUR = FIRST
+            CURRENT = FIRST
             FOUND = None
-            while CUR < TODAY:
-                if os.path.isfile(_format_path(CUR.strftime("%Y%m%d"))):
-                    FOUND = CUR
+            while CURRENT < TODAY:
+                if os.path.isfile(_format_file_path(CURRENT.strftime("%Y%m%d"))):
+                    FOUND = CURRENT
                     break
-                CUR += dt.timedelta(days=1)
-            if FOUND and os.path.isfile(_format_path(TODAY_STR)):
-                PLANS.append((FOUND.strftime("%Y%m%d"), TODAY_STR, "月DIFF"))
+                CURRENT += dt.timedelta(days=1)
+            if FOUND and os.path.isfile(_format_file_path(TODAY_STRING)):
+                PLANS.append((FOUND.strftime("%Y%m%d"), TODAY_STRING, "月DIFF"))
 
         if not PLANS:
             self._PLANS = []
@@ -161,12 +160,12 @@ class DeviceDIFFTask(BaseTask):
         self._PRIMARY = (BEFORE_YMD, AFTER_YMD, OUT_SUFFIX)
 
         # 仅读取 sheet 名（很快）
-        START_FILE = _format_path(BEFORE_YMD)
-        END_FILE = _format_path(AFTER_YMD)
+        START_FILE_PATH = _format_file_path(BEFORE_YMD)
+        END_FILE_PATH = _format_file_path(AFTER_YMD)
         try:
-            WB_A = load_workbook(START_FILE, read_only=True, data_only=True)
-            WB_B = load_workbook(END_FILE, read_only=True, data_only=True)
-            self._SITES = sorted(set(WB_A.sheetnames) | set(WB_B.sheetnames))
+            WORKBOOK_A = load_workbook(START_FILE_PATH, read_only=True, data_only=True)
+            WORKBOOK_B = load_workbook(END_FILE_PATH, read_only=True, data_only=True)
+            self._SITES = sorted(set(WORKBOOK_A.sheetnames) | set(WORKBOOK_B.sheetnames))
         except Exception as ERROR:
             self._PLANS = []
             self.add_result(Level.WARN, f"读取输入Excel失败（获取 sheet 名）：{ERROR}")
@@ -184,10 +183,13 @@ class DeviceDIFFTask(BaseTask):
         self._WB = Workbook()
         self._OVERVIEW = self._WB.active
         self._OVERVIEW.title = "Overview"
-        self._OVERVIEW.append(["起始文件", os.path.basename(START_FILE)])
-        self._OVERVIEW.append(["结束文件", os.path.basename(END_FILE)])
+        self._OVERVIEW.append(["起始文件", os.path.basename(START_FILE_PATH)])
+        self._OVERVIEW.append(["结束文件", os.path.basename(END_FILE_PATH)])
         self._OVERVIEW.append([])
-        self._OVERVIEW.append(["站点Sheet", "设备数(A)", "设备数(B)", "新增DIFF设备", "删除DIFF设备", "配置产生变更设备数量", "备注"])
+        self._OVERVIEW.append([
+            "站点Sheet", "设备数(A)", "设备数(B)", "新增DIFF设备",
+            "删除DIFF设备", "配置产生变更设备数量", "备注"
+        ])
 
         self._SUM_ADDED = self._SUM_REMOVED = self._SUM_CHANGED = 0
         return self._SITES  # 关键：外层进度条按 Sheet 数显示 1/N
@@ -195,18 +197,18 @@ class DeviceDIFFTask(BaseTask):
     # 加载忽略规则：从YAML文件加载DIFF忽略规则
     def _load_ignore_rules(self):
         """加载DIFF忽略规则
-        
+
 
         从YAML文件加载DIFF忽略规则
-        
+
 
         Returns:
             dict: 忽略规则字典
         """
         try:
-            IGNORE_FILE = os.path.join("YAML", "Ignore_DIFF.yaml")
-            if os.path.exists(IGNORE_FILE):
-                with open(IGNORE_FILE, 'r', encoding='utf-8') as FILE_HANDLE:
+            IGNORE_FILE_PATH = os.path.join("YAML", "Ignore_DIFF.yaml")
+            if os.path.exists(IGNORE_FILE_PATH):
+                with open(IGNORE_FILE_PATH, 'r', encoding='utf-8') as FILE_HANDLE:
                     return yaml.safe_load(FILE_HANDLE)
             return {}
         except Exception as ERROR:
@@ -216,29 +218,29 @@ class DeviceDIFFTask(BaseTask):
     # 检查行是否应该被忽略：根据忽略规则判断行是否应该被过滤
     def _should_ignore_line(self, line: str) -> bool:
         """检查行是否应该被忽略
-        
+
 
         Args:
             line: 要检查的行
-            
+
 
         Returns:
             bool: 如果应该被忽略则返回True
         """
         if not self._IGNORE_RULES or "diff_ignore" not in self._IGNORE_RULES:
             return False
-        
+
 
         RULES = self._IGNORE_RULES["diff_ignore"]
         LINE_LOWER = line.lower()
-        
+
 
         # 检查包含匹配
         if "message_contains" in RULES:
             for PATTERN in RULES["message_contains"]:
                 if PATTERN.lower() in LINE_LOWER:
                     return True
-        
+
 
         # 检查正则表达式匹配
         if "message_regex" in RULES:
@@ -248,34 +250,34 @@ class DeviceDIFFTask(BaseTask):
                         return True
                 except re.error:
                     continue
-        
+
 
         return False
 
     # 过滤配置行：移除应该被忽略的行
-    def _filter_config_lines(self, lines: list[str]) -> list[str]:
+    def _filter_configuration_lines(self, lines: list[str]) -> list[str]:
         """过滤配置行
-        
+
 
         移除应该被忽略的行
-        
+
 
         Args:
             lines: 配置行列表
-            
+
 
         Returns:
             list[str]: 过滤后的配置行列表
         """
         if not self._IGNORE_RULES:
             return lines
-        
+
 
         FILTERED_LINES = []
         for LINE in lines:
             if not self._should_ignore_line(LINE):
                 FILTERED_LINES.append(LINE)
-        
+
 
         return FILTERED_LINES
 
@@ -283,44 +285,50 @@ class DeviceDIFFTask(BaseTask):
     @staticmethod
     def _normalize_device(header: str) -> Tuple[Optional[str], str]:
         """标准化设备名称
-        
+
 
         从列头中提取设备标识符
-        
+
 
         Args:
             header: 列头字符串
-            
+
 
         Returns:
             Tuple[Optional[str], str]: (设备标识符, 原始列头)
         """
         if header is None:
             return None, ""
-        HEADER_STR = str(header).strip()
-        if not HEADER_STR:
+        HEADER_STRING = str(header).strip()
+        if not HEADER_STRING:
             return None, ""
-        HEADER_NOEXT = HEADER_STR[:-4] if HEADER_STR.lower().endswith(".log") else HEADER_STR
-        if len(HEADER_NOEXT) > 9 and HEADER_NOEXT[:8].isdigit() and HEADER_NOEXT[8] == "-":
+        HEADER_NOEXT = (
+            HEADER_STRING[:-4] if HEADER_STRING.lower().endswith(".log") else HEADER_STRING
+        )
+        if (
+            len(HEADER_NOEXT) > 9
+            and HEADER_NOEXT[:8].isdigit()
+            and HEADER_NOEXT[8] == "-"
+        ):
             DEVICE_KEY = HEADER_NOEXT[9:].strip()
         else:
             DEVICE_KEY = HEADER_NOEXT.strip()
         if not DEVICE_KEY:
-            return None, HEADER_STR
-        return DEVICE_KEY, HEADER_STR
+            return None, HEADER_STRING
+        return DEVICE_KEY, HEADER_STRING
 
     # 读取Excel工作表数据：解析指定工作表并返回设备配置映射
     def _read_sheet_map(self, xlsx_path: str, sheet_name: str) -> dict[str, dict]:
         """读取Excel工作表数据
-        
+
 
         只读取指定sheet，返回设备配置映射
-        
+
 
         Args:
             xlsx_path: Excel文件路径
             sheet_name: 工作表名称
-            
+
 
         Returns:
             dict: {device_key: {"label": <列头>, "lines": [...]}, ...}
@@ -348,26 +356,28 @@ class DeviceDIFFTask(BaseTask):
         for COL, KEY, LABEL in COLS:
             LINES: list[str] = []
             EMPTY_STREAK = 0
-            for CELLS in WORKSHEET.iter_rows(min_row=2, min_col=COL, max_col=COL, values_only=True):
-                VAL = CELLS[0]
-                if VAL is None or VAL == "":
+            for CELLS in WORKSHEET.iter_rows(
+                    min_row=2, min_col=COL, max_col=COL, values_only=True
+            ):
+                VALUE = CELLS[0]
+                if VALUE is None or VALUE == "":
                     EMPTY_STREAK += 1
                     if EMPTY_STREAK >= EMPTY_BREAK:
                         break
                 else:
                     EMPTY_STREAK = 0
-                    LINES.append(str(VAL))
+                    LINES.append(str(VALUE))
             SHEET_MAP[KEY] = {"label": LABEL, "lines": LINES}
         return SHEET_MAP
 
     # 处理单个站点的差异对比：渲染指定Sheet并生成差异报告
     def run_single(self, site):
         """处理单个站点的差异对比
-        
+
 
         渲染指定Sheet并生成差异报告
         若是最后一个Sheet，则保存主输出并顺带跑周/月计划
-        
+
 
         Args:
             site: 站点名称
@@ -377,11 +387,15 @@ class DeviceDIFFTask(BaseTask):
             return
 
         # 仅读取当前 sheet 的数据（把重活分摊到每次调用）
-        START_FILE = os.path.join(self.INPUT_DIR, f"{self._START_YMD}-{self.FILENAME_PREFIX}.xlsx")
-        END_FILE = os.path.join(self.INPUT_DIR, f"{self._END_YMD}-{self.FILENAME_PREFIX}.xlsx")
+        START_FILE_PATH = os.path.join(
+            self.INPUT_DIR, f"{self._START_YMD}-{self.FILENAME_PREFIX}.xlsx"
+        )
+        END_FILE_PATH = os.path.join(
+            self.INPUT_DIR, f"{self._END_YMD}-{self.FILENAME_PREFIX}.xlsx"
+        )
         try:
-            AMAP = self._read_sheet_map(START_FILE, site)
-            BMAP = self._read_sheet_map(END_FILE, site)
+            AMAP = self._read_sheet_map(START_FILE_PATH, site)
+            BMAP = self._read_sheet_map(END_FILE_PATH, site)
         except Exception as ERROR:
             self.add_result(Level.WARN, f"读取 {site} 失败：{ERROR}")
             AMAP, BMAP = {}, {}
@@ -396,7 +410,7 @@ class DeviceDIFFTask(BaseTask):
         WORKSHEET.append([f"站点：{site}"])
         WORKSHEET.append([f"起始：{self._START_YMD}", f"结束：{self._END_YMD}"])
         WORKSHEET.append(["变更类型", "设备Key", "起始列头", "结束列头", "说明/DIFF"])
-        
+
 
         # 设置列宽
         WORKSHEET.column_dimensions['A'].width = 15  # 变更类型
@@ -413,30 +427,33 @@ class DeviceDIFFTask(BaseTask):
 
         # CHANGED：E 列按行展开 + 上色
         for DEV in COMMON:
-            A_LINES = AMAP[DEV]["lines"]
-            B_LINES = BMAP[DEV]["lines"]
-            
+            LINES_A = AMAP[DEV]["lines"]
+            LINES_B = BMAP[DEV]["lines"]
+
 
             # 过滤忽略的行
-            A_FILTERED = self._filter_config_lines(A_LINES)
-            B_FILTERED = self._filter_config_lines(B_LINES)
-            
+            FILTERED_LINES_A = self._filter_configuration_lines(LINES_A)
+            FILTERED_LINES_B = self._filter_configuration_lines(LINES_B)
 
-            if A_FILTERED == B_FILTERED:
+
+            if FILTERED_LINES_A == FILTERED_LINES_B:
                 continue
             CHANGED.append(DEV)
-            DIFF_LINES = list(unified_diff(A_FILTERED, B_FILTERED, fromfile="before", tofile="after", lineterm=""))
+            DIFF_LINES = list(unified_diff(
+                FILTERED_LINES_A, FILTERED_LINES_B, fromfile="before",
+                tofile="after", lineterm=""
+            ))
 
             WORKSHEET.append(["CHANGED", DEV, AMAP[DEV]["label"], BMAP[DEV]["label"], None])
-            BASE_ROW = WORKSHEET.max_row
+            BASE_ROW_INDEX = WORKSHEET.max_row
 
             EXTRA = max(0, len(DIFF_LINES) - 1)
             if EXTRA > 0:
-                WORKSHEET.insert_rows(idx=BASE_ROW + 1, amount=EXTRA)
+                WORKSHEET.insert_rows(idx=BASE_ROW_INDEX + 1, amount=EXTRA)
 
             RED, GREEN, BLACK = "FFFF0000", "FF008000", "FF000000"
             for ROW_IDX, LINE in enumerate(DIFF_LINES or ["(无差异)"]):
-                CELL = WORKSHEET.cell(row=BASE_ROW + ROW_IDX, column=5, value=LINE)
+                CELL = WORKSHEET.cell(row=BASE_ROW_INDEX + ROW_IDX, column=5, value=LINE)
                 CELL.alignment = Alignment(vertical="top", wrap_text=False)
                 if LINE.startswith("+") and not LINE.startswith("+++"):
                     CELL.font = Font(color=GREEN)
@@ -444,11 +461,17 @@ class DeviceDIFFTask(BaseTask):
                     CELL.font = Font(color=RED)
                 else:
                     CELL.font = Font(color=BLACK)
-                WORKSHEET.row_dimensions[BASE_ROW + ROW_IDX].height = 15
+                WORKSHEET.row_dimensions[BASE_ROW_INDEX + ROW_IDX].height = 15
 
-            ADD_CNT = sum(1 for LINE in DIFF_LINES if LINE.startswith("+") and not LINE.startswith("+++"))
-            DEL_CNT = sum(1 for LINE in DIFF_LINES if LINE.startswith("-") and not LINE.startswith("---"))
-            WORKSHEET.cell(row=BASE_ROW, column=4).value = f"-{DEL_CNT} / +{ADD_CNT}"
+            ADD_COUNT = sum(
+                1 for LINE in DIFF_LINES
+                if LINE.startswith("+") and not LINE.startswith("+++")
+            )
+            DELETE_COUNT = sum(
+                1 for LINE in DIFF_LINES
+                if LINE.startswith("-") and not LINE.startswith("---")
+            )
+            WORKSHEET.cell(row=BASE_ROW_INDEX, column=4).value = f"-{DELETE_COUNT} / +{ADD_COUNT}"
 
         # 概览
         self._OVERVIEW.append([
@@ -476,13 +499,13 @@ class DeviceDIFFTask(BaseTask):
 
             # 创建输出目录（如果目录已存在则不报错）
             os.makedirs(self.OUTPUT_DIR, exist_ok=True)
-            OUT_NAME = (
+            OUTPUT_NAME = (
                 f"{self._END_YMD}-关键设备DIFF.xlsx"
                 if not self._OUT_SUFFIX
                 else f"{self._END_YMD}-{self._OUT_SUFFIX}-关键设备DIFF.xlsx"
             )
-            OUT_PATH = os.path.join(self.OUTPUT_DIR, OUT_NAME)
-            self._WB.save(OUT_PATH)
+            OUTPUT_PATH = os.path.join(self.OUTPUT_DIR, OUTPUT_NAME)
+            self._WB.save(OUTPUT_PATH)
 
             # 同日若还需"周/月"DIFF：这里顺带生成（一次性写完整文件，不显示进度条）
             for (BEFORE_YMD, AFTER_YMD, TAG) in self._PLANS[1:]:
@@ -493,28 +516,34 @@ class DeviceDIFFTask(BaseTask):
 
     # —— 备用：用于顺带生成周/月 DIFF（一次性完成，不走外层进度）——
     def _do_diff_and_save(self, start_date: str, end_date: str, out_suffix: Optional[str]):
-        START_FILE = os.path.join(self.INPUT_DIR, f"{start_date}-{self.FILENAME_PREFIX}.xlsx")
-        END_FILE = os.path.join(self.INPUT_DIR, f"{end_date}-{self.FILENAME_PREFIX}.xlsx")
-        if not os.path.isfile(START_FILE) or not os.path.isfile(END_FILE):
-            raise FileNotFoundError(f"源文件缺失：{os.path.basename(START_FILE)} 或 {os.path.basename(END_FILE)}")
+        START_FILE_PATH = os.path.join(self.INPUT_DIR, f"{start_date}-{self.FILENAME_PREFIX}.xlsx")
+        END_FILE_PATH = os.path.join(self.INPUT_DIR, f"{end_date}-{self.FILENAME_PREFIX}.xlsx")
+        if not os.path.isfile(START_FILE_PATH) or not os.path.isfile(END_FILE_PATH):
+            raise FileNotFoundError(
+                f"源文件缺失：{os.path.basename(START_FILE_PATH)} 或 "
+                f"{os.path.basename(END_FILE_PATH)}"
+            )
 
-        WORKBOOK_START = load_workbook(START_FILE, read_only=True, data_only=True)
-        WORKBOOK_END = load_workbook(END_FILE, read_only=True, data_only=True)
+        WORKBOOK_START = load_workbook(START_FILE_PATH, read_only=True, data_only=True)
+        WORKBOOK_END = load_workbook(END_FILE_PATH, read_only=True, data_only=True)
         ALL_SITES = sorted(set(WORKBOOK_START.sheetnames) | set(WORKBOOK_END.sheetnames))
 
         OUT_WORKBOOK = Workbook()
         OVERVIEW = OUT_WORKBOOK.active
         OVERVIEW.title = "Overview"
-        OVERVIEW.append(["起始文件", os.path.basename(START_FILE)])
-        OVERVIEW.append(["结束文件", os.path.basename(END_FILE)])
+        OVERVIEW.append(["起始文件", os.path.basename(START_FILE_PATH)])
+        OVERVIEW.append(["结束文件", os.path.basename(END_FILE_PATH)])
         OVERVIEW.append([])
-        OVERVIEW.append(["站点Sheet", "设备数(A)", "设备数(B)", "新增DIFF设备", "删除DIFF设备", "配置产生变更设备数量", "备注"])
+        OVERVIEW.append([
+            "站点Sheet", "设备数(A)", "设备数(B)", "新增DIFF设备",
+            "删除DIFF设备", "配置产生变更设备数量", "备注"
+        ])
 
         TOTAL_ADDED = TOTAL_REMOVED = TOTAL_CHANGED = 0
 
         for SITE in ALL_SITES:
-            AMAP = self._read_sheet_map(START_FILE, SITE)
-            BMAP = self._read_sheet_map(END_FILE, SITE)
+            AMAP = self._read_sheet_map(START_FILE_PATH, SITE)
+            BMAP = self._read_sheet_map(END_FILE_PATH, SITE)
             ASET, BSET = set(AMAP.keys()), set(BMAP.keys())
             ADDED = sorted(list(BSET - ASET))
             REMOVED = sorted(list(ASET - BSET))
@@ -525,7 +554,7 @@ class DeviceDIFFTask(BaseTask):
             WORKSHEET.append([f"站点：{SITE}"])
             WORKSHEET.append([f"起始：{start_date}", f"结束：{end_date}"])
             WORKSHEET.append(["变更类型", "设备Key", "起始列头", "结束列头", "说明/DIFF"])
-            
+
 
             # 设置列宽
             WORKSHEET.column_dimensions['A'].width = 15  # 变更类型
@@ -540,30 +569,33 @@ class DeviceDIFFTask(BaseTask):
                 WORKSHEET.append(["REMOVED", DEV, AMAP[DEV]["label"], "", "设备仅存在于开始日"])
 
             for DEV in COMMON:
-                A_LINES = AMAP[DEV]["lines"]
-                B_LINES = BMAP[DEV]["lines"]
-                
+                LINES_A = AMAP[DEV]["lines"]
+                LINES_B = BMAP[DEV]["lines"]
+
 
                 # 过滤忽略的行
-                A_FILTERED = self._filter_config_lines(A_LINES)
-                B_FILTERED = self._filter_config_lines(B_LINES)
-                
+                FILTERED_LINES_A = self._filter_configuration_lines(LINES_A)
+                FILTERED_LINES_B = self._filter_configuration_lines(LINES_B)
 
-                if A_FILTERED == B_FILTERED:
+
+                if FILTERED_LINES_A == FILTERED_LINES_B:
                     continue
                 CHANGED.append(DEV)
-                DIFF_LINES = list(unified_diff(A_FILTERED, B_FILTERED, fromfile="before", tofile="after", lineterm=""))
+                DIFF_LINES = list(unified_diff(
+                    FILTERED_LINES_A, FILTERED_LINES_B, fromfile="before",
+                    tofile="after", lineterm=""
+                ))
 
                 WORKSHEET.append(["CHANGED", DEV, AMAP[DEV]["label"], BMAP[DEV]["label"], None])
-                BASE_ROW = WORKSHEET.max_row
+                BASE_ROW_INDEX = WORKSHEET.max_row
 
                 EXTRA = max(0, len(DIFF_LINES) - 1)
                 if EXTRA > 0:
-                    WORKSHEET.insert_rows(idx=BASE_ROW + 1, amount=EXTRA)
+                    WORKSHEET.insert_rows(idx=BASE_ROW_INDEX + 1, amount=EXTRA)
 
                 RED, GREEN, BLACK = "FFFF0000", "FF008000", "FF000000"
                 for ROW_IDX, LINE in enumerate(DIFF_LINES or ["(无差异)"]):
-                    CELL = WORKSHEET.cell(row=BASE_ROW + ROW_IDX, column=5, value=LINE)
+                    CELL = WORKSHEET.cell(row=BASE_ROW_INDEX + ROW_IDX, column=5, value=LINE)
                     CELL.alignment = Alignment(vertical="top", wrap_text=False)
                     if LINE.startswith("+") and not LINE.startswith("+++"):
                         CELL.font = Font(color=GREEN)
@@ -571,11 +603,19 @@ class DeviceDIFFTask(BaseTask):
                         CELL.font = Font(color=RED)
                     else:
                         CELL.font = Font(color=BLACK)
-                    WORKSHEET.row_dimensions[BASE_ROW + ROW_IDX].height = 15
+                    WORKSHEET.row_dimensions[BASE_ROW_INDEX + ROW_IDX].height = 15
 
-                ADD_CNT = sum(1 for LINE in DIFF_LINES if LINE.startswith("+") and not LINE.startswith("+++"))
-                DEL_CNT = sum(1 for LINE in DIFF_LINES if LINE.startswith("-") and not LINE.startswith("---"))
-                WORKSHEET.cell(row=BASE_ROW, column=4).value = f"-{DEL_CNT} / +{ADD_CNT}"
+                ADD_COUNT = sum(
+                    1 for LINE in DIFF_LINES
+                    if LINE.startswith("+") and not LINE.startswith("+++")
+                )
+                DELETE_COUNT = sum(
+                    1 for LINE in DIFF_LINES
+                    if LINE.startswith("-") and not LINE.startswith("---")
+                )
+                WORKSHEET.cell(
+                    row=BASE_ROW_INDEX, column=4
+                ).value = f"-{DELETE_COUNT} / +{ADD_COUNT}"
 
             OVERVIEW.append([
                 SITE, len(ASET), len(BSET), len(ADDED), len(REMOVED), len(CHANGED),
@@ -593,7 +633,7 @@ class DeviceDIFFTask(BaseTask):
 
         # 创建输出目录（如果目录已存在则不报错）
         os.makedirs(self.OUTPUT_DIR, exist_ok=True)
-        OUT_NAME = f"{end_date}-关键设备DIFF.xlsx" if not out_suffix \
+        OUTPUT_FILE_NAME = f"{end_date}-关键设备DIFF.xlsx" if not out_suffix \
             else f"{end_date}-{out_suffix}-关键设备DIFF.xlsx"
-        OUT_PATH = os.path.join(self.OUTPUT_DIR, OUT_NAME)
-        OUT_WORKBOOK.save(OUT_PATH)
+        OUTPUT_FILE_PATH = os.path.join(self.OUTPUT_DIR, OUTPUT_FILE_NAME)
+        OUT_WORKBOOK.save(OUTPUT_FILE_PATH)

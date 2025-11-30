@@ -5,7 +5,7 @@
 # 继承自 LinuxServerBase，包含 ESBaseTask 的所有通用检查
 #
 # 通用检查（来自 LinuxServerBase）:
-# 根分区占用:df -h 解析 / 的 used%，与 servers.thresholds.disk_percent 比较（默认 WARN≥50，CRIT≥80）
+# 根分区占用:df -h 解析 / 的 used%，与 ESServer.thresholds.disk_percent 比较（从配置文件读取阈值）
 # 内存占用:free -m 解析 used/total 推算占用率，LOGSTASH 阈值: WARN≥50，CRIT≥80
 
 # 导入标准库
@@ -21,7 +21,7 @@ from .TaskBase import CONFIG, require_keys
 # Logstash服务器巡检任务类：专门用于Logstash服务器的巡检，检查内存和磁盘使用情况
 class ESLogstashTask(BaseLinuxServerTask):
     """Logstash服务器巡检任务
-    
+
 
     专门用于Logstash服务器的巡检，检查内存和磁盘使用情况
     继承自LinuxServerBase，包含所有通用检查功能
@@ -37,10 +37,10 @@ class ESLogstashTask(BaseLinuxServerTask):
             ["ESLogstashTask"],
             "ESServer.thresholds.mem_percent"
         )
-        
+
 
         # 从配置文件读取ESLogstashTask的内存阈值配置
         MEM_THRESHOLDS = CONFIG["ESServer"]["thresholds"]["mem_percent"]["ESLogstashTask"]
-        super().__init__("LOGSTASH服务器巡检", "ESLogstashTask", 
+        super().__init__("LOGSTASH服务器巡检", "ESLogstashTask",
 
                         MEM_THRESHOLDS["warn"], MEM_THRESHOLDS["crit"])

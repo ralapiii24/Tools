@@ -5,11 +5,14 @@
 # 继承自 LinuxServerBase，包含 ESBaseTask 的所有通用检查
 #
 # ESFlowTask 额外检查:
-# 关键端口:netstat -tulnp 寻找 5601/9200/9300/4739/2055/6343 等（来自 flow_checks.require_ports，并有兜底端口集合）
-# 容器状态:docker ps --format "{{.Names}} {{.Status}}"，要求 opt-kibana-1、elastiflow-logstash、elastiflow-elasticsearch 等容器处于 Up；
-# 若 docker 失败，会回退到端口命中结果作为提示
-# ES 索引大小:/_cat/indices?v 过滤 index_prefix（默认 elastiflow-4.0.1-），解析末列大小（支持 K/M/G/T），超过 index_size_limit_bytes（默认 1GiB）则记录
-# Segments 行数:/_cat/segments?v 针对非今昨的索引，若行数 > segment_max_non_recent（默认 3）则 WARN
+# 关键端口:netstat -tulnp 寻找端口（来自 ESServer.ESFlowTask_CustomParameters.require_ports），
+#   docker失败时使用兜底端口集合（5601/9600/9300/9200/4739/2055/6343）
+# 容器状态:docker ps --format "{{.Names}} {{.Status}}"，要求 opt-kibana-1、elastiflow-logstash、
+#   elastiflow-elasticsearch 等容器处于 Up；若 docker 失败，会回退到端口命中结果作为提示
+# ES 索引大小:/_cat/indices?v 过滤 index_prefix（从配置文件读取，如 elastiflow-4.0.1-），
+#   解析末列大小（支持 K/M/G/T），超过 index_size_limit_bytes（从配置文件读取，如 1GiB）则记录
+# Segments 行数:/_cat/segments?v 针对非今昨的索引，
+#   若行数 > segment_max_non_recent（从配置文件读取，如 3）则 WARN
 
 # 导入标准库
 import re
@@ -25,11 +28,11 @@ from .TaskBase import Level, CONFIG, ssh_exec, require_keys
 # 字节单位转换函数：将字符串格式的存储大小转换为字节数
 def to_bytes(SIZE_STR: str) -> int:
     """将字符串格式的存储大小转换为字节数
-    
+
 
     Args:
         SIZE_STR: 大小字符串（如"1GB", "500MB"等）
-        
+
 
     Returns:
         int: 字节数，如果转换失败则返回-1
@@ -53,7 +56,7 @@ def to_bytes(SIZE_STR: str) -> int:
 # FLOW服务器巡检任务类：专门用于FLOW服务器的巡检，包括容器、端口和ES索引检查
 class ESFlowTask(BaseLinuxServerTask):
     """FLOW服务器巡检任务
-    
+
 
     专门用于FLOW服务器的巡检，包括容器、端口和ES索引检查
     继承自LinuxServerBase，包含所有通用检查功能
@@ -64,7 +67,10 @@ class ESFlowTask(BaseLinuxServerTask):
         require_keys(CONFIG, ["ESServer"], "root")
         require_keys(CONFIG["ESServer"], ["thresholds", "ESFlowTask_CustomParameters"], "ESServer")
         require_keys(CONFIG["ESServer"]["thresholds"], ["mem_percent"], "ESServer.thresholds")
-        require_keys(CONFIG["ESServer"]["thresholds"]["mem_percent"], ["ESFlowTask"], "ESServer.thresholds.mem_percent")
+        require_keys(
+            CONFIG["ESServer"]["thresholds"]["mem_percent"], ["ESFlowTask"],
+            "ESServer.thresholds.mem_percent"
+        )
         require_keys(
             CONFIG["ESServer"]["ESFlowTask_CustomParameters"],
             [
@@ -73,11 +79,11 @@ class ESFlowTask(BaseLinuxServerTask):
             ],
             "ESServer.ESFlowTask_CustomParameters"
         )
-        
+
 
         # 从配置文件读取ESFlowTask的内存阈值配置
         MEM_THRESHOLDS = CONFIG["ESServer"]["thresholds"]["mem_percent"]["ESFlowTask"]
-        super().__init__("FLOW服务器巡检", "ESFlowTask", 
+        super().__init__("FLOW服务器巡检", "ESFlowTask",
 
                         MEM_THRESHOLDS["warn"], MEM_THRESHOLDS["crit"])
         # 从配置文件读取ESFlowTask的自定义参数（必须配置）
@@ -86,10 +92,10 @@ class ESFlowTask(BaseLinuxServerTask):
     # 执行单个FLOW服务器的专项巡检：检查端口、容器、ES索引和段信息
     def run_single(self, ITEM: Tuple[str, str]) -> None:
         """执行单个FLOW服务器的专项巡检
-        
+
 
         检查端口、容器、ES索引和段信息
-        
+
 
         Args:
             ITEM: (服务器名, IP地址)元组
@@ -122,7 +128,11 @@ class ESFlowTask(BaseLinuxServerTask):
         for REQUIRED_PORT in self.FC["require_ports"]:
             PATTERN = rf":{REQUIRED_PORT}\b.*LISTEN"
             if not re.search(PATTERN, NETSTAT_STDOUT):
-                self.add_result(Level.CRIT, f"站点{SERVER_NAME}流量分析系统FLOW {IP_ADDR} 端口 {REQUIRED_PORT} 未监听")
+                self.add_result(
+                    Level.CRIT,
+                    f"站点{SERVER_NAME}流量分析系统FLOW {IP_ADDR} "
+                    f"端口 {REQUIRED_PORT} 未监听"
+                )
 
         # 容器检查：优先使用 docker ps --format 的精确名称匹配；若 docker 失败，则按端口占用做兜底
         if DOCKER_EC == 0 and DOCKER_STDOUT.strip():
@@ -153,41 +163,52 @@ class ESFlowTask(BaseLinuxServerTask):
                         FILTERED_LINES.append(LINE.rstrip())
                         break
             if FILTERED_LINES:
-                msg = (
+                message = (
                     f"站点{SERVER_NAME}流量分析系统FLOW {IP_ADDR} "
                     f"docker ps 失败，但端口命中如下：\n" + "\n".join(FILTERED_LINES)
                 )
-                self.add_result(Level.OK, msg)
+                self.add_result(Level.OK, message)
             else:
-                self.add_result(Level.ERROR, f"站点{SERVER_NAME}流量分析系统FLOW {IP_ADDR} docker ps 失败且关键端口未占用")
+                self.add_result(
+                    Level.ERROR,
+                    f"站点{SERVER_NAME}流量分析系统FLOW {IP_ADDR} "
+                    f"docker ps 失败且关键端口未占用"
+                )
         INDEX_PREFIX = self.FC["index_prefix"]
         SIZE_LIMIT_BYTES = int(self.FC["index_size_limit_bytes"])
         DATE_REGEX = re.compile(re.escape(INDEX_PREFIX) + r"(\d{4}\.\d{2}\.\d{2})")
 
-        INDEX_LINES = [LINE.strip() for LINE in INDICES_STDOUT.splitlines() if INDEX_PREFIX in LINE and LINE.strip()]
+        INDEX_LINES = [
+            LINE.strip() for LINE in INDICES_STDOUT.splitlines()
+            if INDEX_PREFIX in LINE and LINE.strip()
+        ]
         DATE_SET = set()
         OVERSIZE_LIST = []
         for LINE in INDEX_LINES:
             MATCH = DATE_REGEX.search(LINE)
             if not MATCH:
                 continue
-            DATE_STR = MATCH.group(1)
-            DATE_SET.add(DATE_STR)
+            DATE_STRING = MATCH.group(1)
+            DATE_SET.add(DATE_STRING)
             COLS = LINE.split()
             if not COLS:
                 continue
             LAST_SIZE_FIELD = COLS[-1].lower()
             if to_bytes(LAST_SIZE_FIELD) > SIZE_LIMIT_BYTES:
-                OVERSIZE_LIST.append(f"{DATE_STR} 大小 {LAST_SIZE_FIELD}")
+                OVERSIZE_LIST.append(f"{DATE_STRING} 大小 {LAST_SIZE_FIELD}")
 
         if len(DATE_SET) > 31:
-            self.add_result(Level.WARN, f"站点{SERVER_NAME}流量分析系统FLOW {IP_ADDR} 索引日期数量 {len(DATE_SET)} 超过 31")
+            self.add_result(
+                Level.WARN,
+                f"站点{SERVER_NAME}流量分析系统FLOW {IP_ADDR} "
+                f"索引日期数量 {len(DATE_SET)} 超过 31"
+            )
         if OVERSIZE_LIST:
-            msg = (
+            message = (
                 f"站点{SERVER_NAME}流量分析系统FLOW {IP_ADDR} "
                 f"索引大小超过1G: " + "；".join(OVERSIZE_LIST)
             )
-            self.add_result(Level.WARN, msg)
+            self.add_result(Level.WARN, message)
 
         SEGMENT_COUNTER: dict[str, int] = {}
         SEGMENT_DATES = set()
@@ -206,15 +227,18 @@ class ESFlowTask(BaseLinuxServerTask):
             if MATCH:
                 SEGMENT_DATES.add(MATCH.group(1))
 
-        TODAY_STR = None
-        YEST_STR = None
+        TODAY_STRING = None
+        YEST_STRING = None
         if SEGMENT_DATES:
             try:
                 from datetime import datetime, timedelta
-                AVAILABLE_DATES = sorted([datetime.strptime(DATE_STR, "%Y.%m.%d") for DATE_STR in SEGMENT_DATES])
+                AVAILABLE_DATES = sorted([
+                    datetime.strptime(DATE_STRING, "%Y.%m.%d")
+                    for DATE_STRING in SEGMENT_DATES
+                ])
                 MAX_DATE = AVAILABLE_DATES[-1]
-                TODAY_STR = MAX_DATE.strftime("%Y.%m.%d")
-                YEST_STR = (MAX_DATE - timedelta(days=1)).strftime("%Y.%m.%d")
+                TODAY_STRING = MAX_DATE.strftime("%Y.%m.%d")
+                YEST_STRING = (MAX_DATE - timedelta(days=1)).strftime("%Y.%m.%d")
             except Exception:
                 pass
 
@@ -224,22 +248,22 @@ class ESFlowTask(BaseLinuxServerTask):
             MATCH = DATE_REGEX.search(INDEX_NAME)
             if not MATCH:
                 continue
-            DATE_STR = MATCH.group(1)
-            if TODAY_STR and YEST_STR:
-                if DATE_STR in (TODAY_STR, YEST_STR):
+            DATE_STRING = MATCH.group(1)
+            if TODAY_STRING and YEST_STRING:
+                if DATE_STRING in (TODAY_STRING, YEST_STRING):
                     continue
             else:
                 from datetime import datetime, timedelta
                 FALLBACK_TODAY = datetime.now().strftime("%Y.%m.%d")
                 FALLBACK_YEST = (datetime.now() - timedelta(days=1)).strftime("%Y.%m.%d")
-                if DATE_STR in (FALLBACK_TODAY, FALLBACK_YEST):
+                if DATE_STRING in (FALLBACK_TODAY, FALLBACK_YEST):
                     continue
             if COUNT > LIMIT:
                 OVERS_SEGMENT.append(f"{INDEX_NAME} 行数 {COUNT}")
 
         if OVERS_SEGMENT:
-            msg = (
+            message = (
                 f"站点{SERVER_NAME}流量分析系统FLOW {IP_ADDR} "
                 f"segments 行数超过{LIMIT}: " + "；".join(OVERS_SEGMENT)
             )
-            self.add_result(Level.WARN, msg)
+            self.add_result(Level.WARN, message)

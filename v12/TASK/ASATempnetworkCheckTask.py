@@ -4,13 +4,13 @@
 # 目标:检查ASA防火墙中临时出网地址配置，识别非默认的临时出网地址并告警
 #
 # 处理逻辑:
-# - 从LOG/OxidizedTask/OxidizedTaskBackup/读取cat3（ASA防火墙）的01设备配置
+# - 从{log_dir}/OxidizedTask/OxidizedTaskBackup/读取ASA-FW（ASA防火墙）的01设备配置
 # - 解析object-group network ServTemp-To-Internet配置块
 # - 忽略默认配置network-object host 1.1.1.1
-# - 检测其他network-object host地址，作为临时出网地址，WARN等级输出对应站点
+# - 检测其他network-object地址（支持network-object host IP和network-object IP MASK两种格式），作为临时出网地址，WARN等级输出对应站点
 #
-# 输入文件:LOG/OxidizedTask/OxidizedTaskBackup/（V10新结构：从LOG/日期/OxidizedTaskBackup迁移）
-# 输出:LOG/ASATempnetworkCheckTask/YYYYMMDD-ASA临时出网地址检查.log（详细检查日志）
+# 输入文件:从settings.log_dir读取LOG目录，设备配置文件位于{log_dir}/OxidizedTask/OxidizedTaskBackup/（V10新结构：从LOG/日期/OxidizedTaskBackup迁移）
+# 输出:{log_dir}/ASATempnetworkCheckTask/YYYYMMDD-ASA临时出网地址检查.log（详细检查日志）
 # 配置说明:自动扫描当日配置，按站点输出临时出网地址
 
 # 导入标准库
@@ -30,11 +30,11 @@ from .TaskBase import (
 # ASA临时出网地址检查任务类：检查ASA防火墙中临时出网地址配置
 class ASATempnetworkCheckTask(BaseTask):
     """ASA临时出网地址检查任务
-    
+
 
     检查ASA防火墙中临时出网地址配置，识别非默认的临时出网地址并告警
     """
-    
+
 
     # 初始化ASA临时出网地址检查任务：设置任务名称和路径
     def __init__(self):
@@ -52,16 +52,16 @@ class ASATempnetworkCheckTask(BaseTask):
     # 扫描LOG目录获取站点列表：查找cat3的01设备配置
     def items(self):
         """扫描LOG目录获取站点列表
-        
 
-        查找cat3的01设备配置（ASA防火墙）
-        
+
+        查找ASA-FW的01设备配置（ASA防火墙）
+
 
         Returns:
             list: 站点列表，每个元素为(site, file_path, device_name)元组
         """
         self._TODAY = get_today_str()
-        
+
 
         if not os.path.isdir(self.LOG_DIR_PATH):
             self.add_result(Level.ERROR, f"未找到当日日志目录: {self.LOG_DIR_PATH}")
@@ -70,9 +70,9 @@ class ASATempnetworkCheckTask(BaseTask):
         # 创建输出目录（如果目录已存在则不报错）
         os.makedirs(self.OUTPUT_DIR, exist_ok=True)
 
-        # 扫描LOG目录，查找cat3的01设备（ASA防火墙，设备编号为01）
+        # 扫描LOG目录，查找ASA-FW的01设备（ASA防火墙，设备编号为01）
         sites = []
-        
+
 
         for filename in os.listdir(self.LOG_DIR_PATH):
             if not filename.lower().endswith('.log'):
@@ -85,8 +85,8 @@ class ASATempnetworkCheckTask(BaseTask):
             device_name = filename[len(self._TODAY) + 1:-4]  # 去掉日期前缀和.log后缀
             device_lower = device_name.lower()
 
-            # 检查是否为cat3的01设备（ASA防火墙，设备编号为01）
-            # cat3设备特征：包含fw01-frp或fw02-frp，但这里只检查01设备
+            # 检查是否为ASA-FW的01设备（ASA防火墙，设备编号为01）
+            # ASA-FW设备特征：包含fw01-frp或fw02-frp，但这里只检查01设备
             if 'fw01-frp' in device_lower:
                 site = self._extract_site_from_device(device_name)
                 if site:
@@ -94,7 +94,7 @@ class ASATempnetworkCheckTask(BaseTask):
                     sites.append((site, file_path, device_name))
 
         if not sites:
-            self.add_result(Level.WARN, "未找到cat3的01设备配置")
+            self.add_result(Level.WARN, "未找到ASA-FW的01设备配置")
             return []
 
         return sites
@@ -107,16 +107,16 @@ class ASATempnetworkCheckTask(BaseTask):
     # 检查单个站点配置：解析object-group network ServTemp-To-Internet并检查临时出网地址
     def run_single(self, item: tuple) -> None:
         """检查单个站点配置
-        
+
 
         解析object-group network ServTemp-To-Internet并检查临时出网地址
-        
+
 
         Args:
             item: (site, file_path, device_name)元组
         """
         site, file_path, device_name = item
-        
+
 
         try:
             # 读取配置文件
@@ -125,7 +125,7 @@ class ASATempnetworkCheckTask(BaseTask):
 
             # 提取object-group network ServTemp-To-Internet配置块
             temp_ips = self._extract_temp_network_objects(content)
-            
+
 
             if temp_ips:
                 for ip in temp_ips:
@@ -140,27 +140,27 @@ class ASATempnetworkCheckTask(BaseTask):
     # 提取临时出网地址：从配置中提取object-group network ServTemp-To-Internet的network-object host地址
     def _extract_temp_network_objects(self, content: str) -> list:
         temp_ips = []
-        
+
 
         # 匹配object-group network ServTemp-To-Internet配置块
         # 支持两种格式：
         # 格式1: network-object host 1.1.1.1
         # 格式2: network-object 1.1.1.1 255.255.255.255
-        
+
 
         # 查找object-group network ServTemp-To-Internet的位置
         start_pattern = r'object-group\s+network\s+ServTemp-To-Internet'
         start_match = re.search(start_pattern, content, re.IGNORECASE)
-        
+
 
         if not start_match:
             return temp_ips
-        
+
 
         # 从匹配位置开始，提取后续的network-object行
         start_pos = start_match.end()
         remaining_content = content[start_pos:]
-        
+
 
         # 匹配所有以空格或tab开头的network-object行
         # 直到遇到不以空格或tab开头的行（下一个顶级配置项）或文件末尾
@@ -170,7 +170,7 @@ class ASATempnetworkCheckTask(BaseTask):
             # 如果遇到不以空格开头的非空行，说明到了下一个配置项，停止解析
             if line_stripped and not line.startswith((' ', '\t')):
                 break
-            
+
 
             # 匹配两种格式：
             # 格式1: network-object host 1.1.1.1
@@ -185,7 +185,7 @@ class ASATempnetworkCheckTask(BaseTask):
                 # 忽略默认配置IP
                 if ip != self._DEFAULT_IP:
                     temp_ips.append(ip)
-        
+
 
         return temp_ips
 

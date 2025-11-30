@@ -13,7 +13,9 @@ V12版本 - 基于V11的持续开发
 2. 跨平台支持：Main.py 支持 Windows、Linux、macOS 三个平台，自动识别平台并安装相应的系统依赖
 3. 命令行参数：Main.py 新增 --check 参数（只检查依赖，不执行巡检）和 --install 参数（安装所有依赖包）
 4. 文档变更：将 README/TaskNotes.log 中每个任务的详细说明拆分到对应任务文件的最顶部，删除 README/TaskNotes.log 文件
-5. 任务描述修正：修正所有任务文件开头的描述，确保与实际代码实现一致，包括 DeviceBackupTask 补充 cat6 设备分类、ACLCrossCheckTask 修正 cat6 描述、ACLArpCheckTask 补充脚本输出文件名格式说明
+5. 任务描述修正：修正所有任务文件开头的描述，包括 DeviceBackupTask 补充 cat6 设备分类、ACLCrossCheckTask 修正 cat6 描述、ACLArpCheckTask 补充脚本输出文件名格式说明
+6. 设备分类规则统一：将 DeviceBackupTask.py 中的设备分类规则（cat1-cat6）提取到 CiscoBase.py
+7. 注释规范统一：将所有注释中的设备分类名称统一修改，cat1→CS-N9K、cat2→LINK-AS、cat3→ASA-FW、cat4→LINK-DS、cat5→BGP、cat6→OOB-DS
 
 【文件变更】
 1. 删除文件：APP/Core.py、APP/RuntimeEnvCheck.py、APP/Updater.py、APP/PipLibrary.bat、APP/PipLibrary.sh、APP/CodeStyleChecker.py、README/TaskNotes.log
@@ -30,9 +32,9 @@ V11版本 - 基于V10的持续开发
 
 【新增功能】
 1. ACLCrossCheckTask新增：N9K&LINKAS ACL交叉检查任务，实现跨Sheet的ACL规则匹配检查，支持13个步骤的复杂匹配逻辑（步骤4-13），包括完全匹配、覆盖匹配、包含匹配、平台外覆盖、特殊规则检查等，使用多颜色标记系统（绿色、蓝色、橙色、紫色、深黄色）区分不同类型的匹配规则，支持双向检查（步骤4-10），输出Excel文件到LOG/ACLCrossCheckTask/目录
-2. ACLCrossCheckTask染色逻辑文档：新增ACLCrossCheckTask_染色逻辑说明.md文档，详细说明13个步骤的染色逻辑、颜色优先级机制、匹配函数说明、配置依赖等，提供完整的任务逻辑说明
-3. CiscoBase.py新增：Cisco ACL解析基础模块，提供统一的ACL解析功能，支持NX-OS CIDR格式和IOS-XE wildcard/host混合格式解析，提供parse_acl、find_acl_blocks_in_column、extract_acl_rules_from_column等通用函数，供ACLCrossCheckTask、ACLArpCheckTask、ACLDupCheckTask等任务共用
-4. 代码规范检查工具：新增APP/CodeStyleChecker.py代码规范检查工具，支持自动检查文件结构、导入规范、注释规范、命名规范、代码结构等，可生成详细的检查报告
+2. ACLCrossCheckTask染色逻辑文档：新增ACLCrossCheckTask_染色逻辑说明.md文档，详细说明13个步骤的染色逻辑、颜色优先级机制、匹配函数说明、配置依赖等
+3. CiscoBase.py新增：Cisco ACL解析基础模块，支持NX-OS CIDR格式和IOS-XE wildcard/host混合格式解析，包含parse_acl、find_acl_blocks_in_column、extract_acl_rules_from_column等通用函数，供ACLCrossCheckTask、ACLArpCheckTask、ACLDupCheckTask等任务共用
+4. 代码规范检查工具：新增APP/CodeStyleChecker.py代码规范检查工具，检查文件结构、导入规范、注释规范、命名规范、代码结构等
 5. 文件拆分：Base.py拆分为TaskBase.py（通用基础类和工具函数）和LinuxServerBase.py（Linux服务器巡检基类），Linux相关功能独立管理
 6. 补丁脚本：新增Patch-v11-0001.py脚本，用于删除已重命名的Base.py文件（已重命名为TaskBase.py），支持生产环境自动清理旧文件
 

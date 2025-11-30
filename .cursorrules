@@ -14,6 +14,11 @@
   - 模块级常量：全大写 + 下划线，如 `MAX_LENGTH`, `DEFAULT_CONFIG`
   - 类属性：小写下划线或全大写常量
 - **特殊方法**：双下划线开头和结尾，如 `__init__`, `__str__`
+- **禁止使用缩写**：
+  - ❌ 禁止在类名、函数名、变量名中使用缩写（如 `tmp`, `msg`, `err`, `str`, `int`, `num`, `cnt`, `idx`, `len`, `max`, `min`, `val`, `var`, `obj`, `arg`, `args`, `kwargs`, `cfg`, `config`, `url`, `uri`, `id`, `dns`, `http`, `api`, `db`, `sql`, `xml`, `json` 等）
+  - ✅ 应使用完整单词（如 `temporary`, `message`, `error`, `string`, `integer`, `number`, `count`, `index`, `length`, `maximum`, `minimum`, `value`, `variable`, `object`, `argument`, `arguments`, `keyword_arguments`, `configuration`, `uniform_resource_locator`, `uniform_resource_identifier`, `identifier`, `domain_name_system`, `hypertext_transfer_protocol`, `application_programming_interface`, `database`, `structured_query_language`, `extensible_markup_language`, `javascript_object_notation` 等）
+  - ✅ 允许的单个字母变量：`i`, `j`, `k`, `x`, `y`, `z`, `n`, `m`（通常用于循环变量）
+  - ✅ **允许的缩写**：`ip`（IP地址是通用术语，允许使用，不需要写成 `internet_protocol`）
 
 ### 导入规范
 - **导入顺序**（必须按此顺序，组之间用空行分隔）：
@@ -135,6 +140,7 @@ message = (
 - ❌ 公共函数/类没有 docstring
 - ❌ 文件末尾没有换行符
 - ❌ 行尾有尾随空格
+- ❌ 在类名、函数名、变量名中使用缩写
 
 ### 特殊约定
 - **目录命名**：全大写（如 `TASK`, `PATCH`），允许数字和下划线
@@ -147,12 +153,13 @@ message = (
 2. **生成新文件时**：
    - 文件顶部必须有模块说明注释
    - 使用正确的导入顺序和分组
-   - 类名使用 PascalCase
-   - 函数名使用 snake_case
+   - 类名使用 PascalCase，使用完整单词，避免缩写
+   - 函数名使用 snake_case，使用完整单词，避免缩写
 3. **生成新函数时**：
    - 公共函数必须有 docstring
    - 使用类型提示（Type Hints）
    - 参数和返回值都要有类型注解
+   - 函数名使用完整单词，避免缩写
 4. **生成长行时**：
    - 超过 99 字符时自动换行
    - 使用括号而不是反斜杠
@@ -160,6 +167,14 @@ message = (
 5. **生成异常处理时**：
    - 必须指定具体异常类型
    - 不要使用 bare except
+
+## 文档规范
+
+### ReleaseNotes.log 编写规范
+- **简洁明了**：只记录具体的变更内容，避免使用过于描述性的语言
+- **格式统一**：使用"做了什么"的格式，而不是"为什么这样做"或"这样做的好处"
+- ❌ 避免：`实现代码复用，统一设备分类逻辑，便于维护和扩展`、`提升代码可读性和一致性` 等描述性内容
+- ✅ 正确：`将 DeviceBackupTask.py 中的设备分类规则（cat1-cat6）提取到 CiscoBase.py`、`将所有注释中的设备分类名称统一修改，cat1→CS-N9K、cat2→LINK-AS` 等具体变更
 
 ## 与 CodeStyleChecker.py 的关系
 
