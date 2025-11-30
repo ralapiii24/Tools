@@ -23,7 +23,7 @@ from typing import Tuple
 
 # 导入本地应用
 from .LinuxServerBase import BaseLinuxServerTask
-from .TaskBase import Level, CONFIG, ssh_exec, require_keys
+from .TaskBase import Level, CONFIG, ssh_exec, require_keys, create_ssh_connection
 
 # 字节单位转换函数：将字符串格式的存储大小转换为字节数
 def to_bytes(SIZE_STR: str) -> int:
@@ -104,7 +104,7 @@ class ESFlowTask(BaseLinuxServerTask):
 
         SERVER_NAME, IP_ADDR = ITEM
         try:
-            SSH = self._ssh(IP_ADDR, self.PORT, self.USERNAME, self.PASSWORD)
+            SSH = create_ssh_connection(IP_ADDR, self.PORT, self.USERNAME, self.PASSWORD)
 
             _, NETSTAT_STDOUT, _ = ssh_exec(SSH, "netstat -tulnp", label="ports")
             DOCKER_CMD = 'docker ps --format "{{.Names}} {{.Status}}"'

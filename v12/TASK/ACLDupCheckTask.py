@@ -649,7 +649,9 @@ def process_file(input_path: str, output_path: str) -> Dict[str, Dict[str, int]]
 
         # 1. 分析第一行，识别cat1/cat2/cat6列
         cat1_cols, cat2_cols, cat6_cols = analyze_first_row_for_cat1_cat2(worksheet)
-        target_cols = cat1_cols + cat2_cols
+        # cat1_cols, cat2_cols, cat6_cols 是 [(col, device_number, device_name), ...] 格式
+        # 需要提取列号（元组的第一个元素）
+        target_cols = [col_info[0] for col_info in cat1_cols + cat2_cols]
 
 
         # 2. 对每个目标列处理ACL块
