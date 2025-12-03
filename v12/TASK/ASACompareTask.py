@@ -200,8 +200,8 @@ class ASACompareTask(BaseTask):
                 next_line_index = lineIndex + 1
                 # 提取缩进的子配置行
                 while (next_line_index < len(lines) and
-                        (lines[next_line_index].startswith(' ') or
-                            lines[next_line_index].startswith('\t'))):
+                       (lines[next_line_index].startswith(' ') or
+                        lines[next_line_index].startswith('\t'))):
                     object_lines.append(lines[next_line_index])
                     next_line_index += 1
                 # 添加空行分隔

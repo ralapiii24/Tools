@@ -179,7 +179,7 @@ def _install_playwright_deps() -> Tuple[bool, str]:
     """安装 Playwright 系统依赖（Linux 和 macOS 需要，Windows 不需要）"""
     if _is_windows():
         return True, "Windows 平台无需安装系统依赖"
-
+    
 
     PLATFORM_NAME = _get_platform_name()
     COMMAND = [sys.executable, "-m", "playwright", "install-deps"]
@@ -307,7 +307,7 @@ def check_runtime_dependencies() -> Tuple[bool, str]:
 # 写入依赖检查报告：将报告内容写入REPORT目录下的文件
 def write_dependency_report(REPORT: str) -> None:
     """将依赖检查报告写入REPORT目录下的文件
-
+    
 
     Args:
         REPORT: 报告内容字符串
@@ -331,13 +331,13 @@ def install_all_dependencies() -> bool:
     2. 安装所有 Python 依赖包
     3. 安装 Playwright 系统依赖（Linux 和 macOS，Windows 不需要）
     4. 安装 Playwright Chromium 浏览器
-
+    
 
     支持平台：Windows、Linux、macOS
     """
     PLATFORM_NAME = _get_platform_name()
     print(f"=== 正在安装巡检依赖库 ({PLATFORM_NAME}) ===")
-
+    
 
     # 1. 升级 pip
     print("正在升级 pip...")
@@ -346,7 +346,7 @@ def install_all_dependencies() -> bool:
         print(f"警告：pip 升级失败: {MSG}")
     else:
         print(MSG)
-
+    
 
     # 2. 获取所有依赖包名称列表
     ALL_PACKAGE_NAMES = sorted([package_name for _, package_name, _ in REQUIRED_PYTHON_PACKAGES])
@@ -356,7 +356,7 @@ def install_all_dependencies() -> bool:
         print(f"错误：依赖包安装失败: {MSG}")
         return False
     print(MSG)
-
+    
 
     # 3. 安装 Playwright 系统依赖（Linux 和 macOS 需要，Windows 不需要）
     if _needs_playwright_system_deps():
@@ -367,7 +367,7 @@ def install_all_dependencies() -> bool:
             print("提示：某些功能可能无法正常工作，建议手动安装系统依赖")
         else:
             print(MSG)
-
+    
 
     # 4. 安装 Playwright Chromium 浏览器
     print("\n正在安装 Playwright 浏览器（Chromium）...")
@@ -376,7 +376,7 @@ def install_all_dependencies() -> bool:
         print(f"错误：Chromium 安装失败: {MSG}")
         return False
     print(MSG)
-
+    
 
     print(f"\n=== 安装完成 ({PLATFORM_NAME}) ===")
     return True
@@ -399,7 +399,10 @@ def _open_document_path(file_path_argument: str) -> None:
         elif OPERATING_SYSTEM_NAME == "Windows":  # Windows
             subprocess.run(["start", file_path_argument], shell=True, check=False)
         else:  # Linux 和其他 Unix 系统
-            subprocess.run(["xdg-open", file_path_argument], check=False)
+            # 使用 cat 显示文件内容
+            print(f"\n=== 报告内容 ({file_path_argument}) ===\n")
+            subprocess.run(["cat", file_path_argument], check=False)
+            print(f"\n=== 报告内容结束 ===\n")
     except Exception as e:
         print(f"警告：无法自动打开文件 {file_path_argument}: {e}")
 
@@ -420,7 +423,7 @@ SHOW_PROGRESS = bool(CONFIGURATION_DATA["settings"].get("show_progress", True))
 # 主调度器：执行所有启用的巡检任务
 def run_inspection_tasks(specified_tasks: Optional[List[str]] = None):
     """执行所有启用的巡检任务并生成日报
-
+    
 
     Args:
         specified_tasks: 如果指定，只运行这些任务（忽略Config.yaml中的开关设置）
@@ -480,7 +483,7 @@ def run_inspection_tasks(specified_tasks: Optional[List[str]] = None):
     # 任务名称映射
     TASK_DISPLAY_NAMES = {
         "FXOSWebTask": "FXOSWebTask-FXOS设备Web巡检",
-        "MirrorFortiGateTask": "MirrorFortiGateTask-FortiGate设备镜像巡检",
+        "MirrorFortiGateTask": "MirrorFortiGateTask-FortiGate设备镜像巡检", 
         "OxidizedTask": "OxidizedTask-Oxidized配置备份巡检",
         "ESLogstashTask": "ESLogstashTask-Logstash服务器巡检",
         "ESBaseTask": "ESBaseTask-Elasticsearch基础巡检",
@@ -497,7 +500,7 @@ def run_inspection_tasks(specified_tasks: Optional[List[str]] = None):
         "ServiceCheckTask": "ServiceCheckTask-服务检查任务(NTP TACACS+)",
         "LogRecyclingTask": "LogRecyclingTask-日志回收任务（月底最后一天执行）"
     }
-
+    
 
     # 打印任务开关状态
     if ENABLED_TASKS:
@@ -516,11 +519,11 @@ def run_inspection_tasks(specified_tasks: Optional[List[str]] = None):
     if not specified_tasks and os.path.exists(DAILY_REPORT):
         with open(DAILY_REPORT, "r", encoding="utf-8") as f:
             EXISTING_CONTENT = f.read()
-
+    
 
     # 生成时间戳
     TIMESTAMP = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
+    
 
     with open(DAILY_REPORT, "w", encoding="utf-8") as REPORT:
         # 写入时间隔离符号和任务开关状态
@@ -588,7 +591,7 @@ def run_inspection_tasks(specified_tasks: Optional[List[str]] = None):
         TOTAL_ELAPSED = END_TIMESTAMP_VALUE - START_TIMESTAMP_VALUE
         TOTAL_MINUTES = int(TOTAL_ELAPSED // 60)
         TOTAL_SECONDS = int(TOTAL_ELAPSED % 60)
-
+        
 
         # 格式化总耗时字符串
         if TOTAL_MINUTES > 0:
@@ -604,13 +607,13 @@ def run_inspection_tasks(specified_tasks: Optional[List[str]] = None):
         REPORT.write(f"总耗时: {ELAPSED_TIME_TEXT}\n")
         # V10新结构：日志输出在各任务目录下，此处记录根目录
         REPORT.write(f"日志目录: {BASE_LOG_DIRECTORY_PATH}\n")
-
+        
 
         # 如果有现有内容，追加到文件末尾
         if EXISTING_CONTENT:
             REPORT.write("\n")
             REPORT.write(EXISTING_CONTENT)
-
+        
 
         # 终端输出总耗时
         if SHOW_PROGRESS:
@@ -673,7 +676,7 @@ if __name__ == "__main__":
     # 4. -任务名 参数：只运行指定的任务（可指定多个，忽略Config.yaml中的开关设置）
     #    示例: python Main.py -ASATempnetworkCheckTask
     #    示例: python Main.py -ACLArpCheckTask -ACLDupCheckTask
-
+    
 
     if len(sys.argv) > 1:
         COMMAND_LINE_PARAMETER = sys.argv[1]
@@ -692,7 +695,7 @@ if __name__ == "__main__":
             if not SUCCESS:
                 print(f"\n错误：安装过程中出现错误，请检查上述输出信息")
                 sys.exit(1)
-
+            
 
             # 安装完成后进行验证
             print("\n=== 验证安装结果 ===")
@@ -713,12 +716,12 @@ if __name__ == "__main__":
                     print(f"错误：参数格式错误。任务名必须以 '-' 开头: {ARG_ITEM}")
                     print("用法: python Main.py -任务名1 -任务名2 ...")
                     sys.exit(1)
-
+            
 
             if not SPECIFIED_TASKS:
                 print("错误：未指定任何任务")
                 sys.exit(1)
-
+            
 
             # 先执行依赖预检
             _run_preflight_or_exit()

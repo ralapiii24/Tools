@@ -976,7 +976,7 @@ class ASADomainCheckTask(BaseTask):
     def _generate_excel_report(
             self, site: str, fw01_results: Dict[str, Tuple[bool, str]],
             output_path: str, fw01_cell_red: Set[int] = None,
-                                fw01_skip_rows: Set[int] = None,
+                              fw01_skip_rows: Set[int] = None,
             fw01_other_rows: Set[int] = None
     ) -> bool:
         """任务1和任务2共用的Excel标色方法
