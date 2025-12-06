@@ -615,27 +615,27 @@ def run_inspection_tasks(specified_tasks: Optional[List[str]] = None):
             REPORT.write(EXISTING_CONTENT)
         
 
-        # 终端输出总耗时
-        if SHOW_PROGRESS:
-            tqdm.write(f"\n=== 全部任务完成 ===")
-            tqdm.write(f"总耗时: {ELAPSED_TIME_TEXT}")
-        else:
-            print(f"\n=== 全部任务完成 ===")
-            print(f"总耗时: {ELAPSED_TIME_TEXT}")
+    # 终端输出总耗时（移到 with 块外部，确保文件已关闭）
+    if SHOW_PROGRESS:
+        tqdm.write(f"\n=== 全部任务完成 ===")
+        tqdm.write(f"总耗时: {ELAPSED_TIME_TEXT}")
+    else:
+        print(f"\n=== 全部任务完成 ===")
+        print(f"总耗时: {ELAPSED_TIME_TEXT}")
 
-        # 如果是指定任务模式，自动打开报告文件
-        if specified_tasks and os.path.exists(DAILY_REPORT):
-            try:
-                _open_document_path(DAILY_REPORT)
-                if SHOW_PROGRESS:
-                    tqdm.write(f"已自动打开报告文件: {DAILY_REPORT}")
-                else:
-                    print(f"已自动打开报告文件: {DAILY_REPORT}")
-            except Exception as e:
-                if SHOW_PROGRESS:
-                    tqdm.write(f"警告：无法自动打开报告文件: {e}")
-                else:
-                    print(f"警告：无法自动打开报告文件: {e}")
+    # 如果是指定任务模式，自动打开报告文件（必须在 with 块外部，文件关闭后才能读取）
+    if specified_tasks and os.path.exists(DAILY_REPORT):
+        try:
+            _open_document_path(DAILY_REPORT)
+            if SHOW_PROGRESS:
+                tqdm.write(f"已自动打开报告文件: {DAILY_REPORT}")
+            else:
+                print(f"已自动打开报告文件: {DAILY_REPORT}")
+        except Exception as e:
+            if SHOW_PROGRESS:
+                tqdm.write(f"警告：无法自动打开报告文件: {e}")
+            else:
+                print(f"警告：无法自动打开报告文件: {e}")
 
 # ============================================================================
 # 第三部分：主程序入口
