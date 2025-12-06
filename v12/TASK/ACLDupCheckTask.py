@@ -206,6 +206,22 @@ def dst_port_covers(DST_PORT_A: Optional[int], DST_PORT_B: Optional[int]) -> boo
         return False  # 特定端口不覆盖任意端口
     return DST_PORT_A == DST_PORT_B
 
+# 检查规则是否为range端口规则：通过检查原始文本中是否包含range关键字
+def _is_range_port_rule(rule: ACLRule) -> bool:
+    """检查规则是否为range端口规则
+
+    Args:
+        rule: ACL规则
+
+    Returns:
+        如果规则原始文本中包含range端口定义则返回True
+    """
+    if not rule.raw:
+        return False
+    # 检查原始文本中是否包含 "range" 关键字（端口范围定义）
+    return bool(re.search(r'\brange\s+\d+\s+\d+', rule.raw.lower()))
+
+
 # 检查规则A是否覆盖规则B
 def rule_covers(RULE_A: ACLRule, RULE_B: ACLRule) -> bool:
     """检查规则A是否覆盖规则B
@@ -222,6 +238,22 @@ def rule_covers(RULE_A: ACLRule, RULE_B: ACLRule) -> bool:
     if not proto_covers(RULE_A.proto, RULE_B.proto):
         return False
 
+    # 特殊处理 range 端口规则：
+    # range 端口不是"任意端口"，它只是一个端口范围
+    # range 端口规则（如 range 3366 3369）不应该覆盖特定端口规则（如 eq 6633）
+    rule_a_is_range = _is_range_port_rule(RULE_A)
+    rule_b_is_range = _is_range_port_rule(RULE_B)
+
+    # 如果 A 是 range 端口规则，B 不是 range 端口规则
+    if rule_a_is_range and not rule_b_is_range:
+        # range 端口不覆盖特定端口（除非 B 的端口也是 None）
+        if RULE_B.port is not None or RULE_B.dst_port is not None:
+            return False
+    # 如果 A 不是 range 端口规则，B 是 range 端口规则
+    if not rule_a_is_range and rule_b_is_range:
+        # 特定端口不覆盖 range 端口
+        if RULE_A.port is not None or RULE_A.dst_port is not None:
+            return False
 
     # 对于NXOS格式，使用port字段；对于IOS-XE格式，使用src_port和dst_port字段
     if RULE_A.style == "NXOS" and RULE_B.style == "NXOS":
