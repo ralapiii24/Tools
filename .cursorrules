@@ -14,16 +14,33 @@
   - 模块级常量：全大写 + 下划线，如 `MAX_LENGTH`, `DEFAULT_CONFIG`
   - 类属性：小写下划线或全大写常量
 - **特殊方法**：双下划线开头和结尾，如 `__init__`, `__str__`
-- **禁止使用缩写**：
-  - ❌ 禁止在类名、函数名、变量名中使用缩写（如 `tmp`, `msg`, `err`, `str`, `int`, `num`, `cnt`, `idx`, `len`, `max`, `min`, `val`, `var`, `obj`, `arg`, `args`, `kwargs`, `cfg`, `config`, `url`, `uri`, `id`, `dns`, `http`, `api`, `db`, `sql`, `xml`, `json` 等）
-  - ✅ 应使用完整单词（如 `temporary`, `message`, `error`, `string`, `integer`, `number`, `count`, `index`, `length`, `maximum`, `minimum`, `value`, `variable`, `object`, `argument`, `arguments`, `keyword_arguments`, `configuration`, `uniform_resource_locator`, `uniform_resource_identifier`, `identifier`, `domain_name_system`, `hypertext_transfer_protocol`, `application_programming_interface`, `database`, `structured_query_language`, `extensible_markup_language`, `javascript_object_notation` 等）
-  - ✅ 允许的单个字母变量：`i`, `j`, `k`, `x`, `y`, `z`, `n`, `m`（通常用于循环变量）
-  - ✅ **允许的缩写**：`ip`（IP地址是通用术语，允许使用，不需要写成 `internet_protocol`）
+
+### 禁止使用的缩写（完整列表）
+以下缩写禁止在类名、函数名、变量名中使用：
+
+**通用缩写**：
+`tmp`, `temp`, `msg`, `err`, `str`, `int`, `num`, `cnt`, `idx`, `len`, `max`, `min`, `val`, `var`, `obj`, `arg`, `args`, `kwargs`, `cfg`, `config`, `conf`, `dir`, `file`, `path`, `url`, `uri`, `id`, `uid`, `pid`
+
+**网络相关**（`ip` 除外，允许使用）：
+`mac`, `dns`, `http`, `https`, `api`, `tcp`, `udp`, `ftp`, `ssh`
+
+**数据库相关**：
+`db`, `sql`, `rdbms`, `nosql`
+
+**文件格式**：
+`xml`, `json`, `html`, `css`, `js`, `jsx`, `ts`, `tsx`, `py`, `exe`, `dll`, `so`, `doc`, `docx`, `xls`, `xlsx`, `pdf`, `txt`, `log`, `csv`, `zip`, `tar`, `gz`, `bz2`, `xz`, `img`, `jpg`, `jpeg`, `png`, `gif`, `svg`, `ico`
+
+**编程相关**：
+`buf`, `buff`, `ptr`, `ref`, `req`, `resp`, `res`, `ret`, `retval`, `stat`, `stats`, `info`, `inf`, `init`, `dest`, `destruct`, `mgr`, `hdl`, `handler`, `cb`, `callback`, `fn`, `func`, `proc`, `cmd`, `cmdline`, `env`, `envvar`, `opt`, `opts`, `param`, `params`, `attr`, `attrs`, `prop`, `props`, `elem`, `elems`, `item`, `items`, `node`, `nodes`, `child`, `children`, `parent`, `prev`, `next`, `head`, `tail`, `src`, `dst`, `beg`, `begin`, `end`, `start`, `stop`, `finish`, `done`, `ok`, `fail`, `error`, `warn`, `warning`, `crit`, `critical`, `debug`, `logger`, `fmt`, `format`, `string`, `repr`, `bool`, `boolean`, `integer`, `float`, `double`, `char`, `byte`, `bytes`, `data`, `dat`, `buffer`, `mem`, `memory`, `addr`, `address`, `pointer`, `reference`, `value`, `variable`, `const`, `constant`, `static`, `global`, `local`, `parameter`, `argument`, `return`, `return_value`, `result`, `response`, `request`, `configuration`, `option`, `options`, `environment`, `environment_variable`, `system`, `operating_system`, `process`, `thread`, `thr`, `task`, `job`, `work`, `worker`, `manager`, `function`, `procedure`, `method`, `meth`, `class`, `cls`, `object`, `inst`, `instance`, `attribute`, `attributes`, `property`, `properties`, `element`, `elements`, `previous`
+
+**允许的例外**：
+- ✅ 单个字母变量：`i`, `j`, `k`, `x`, `y`, `z`, `n`, `m`（通常用于循环变量）
+- ✅ `ip`（IP地址是通用术语，允许使用）
 
 ### 导入规范
 - **导入顺序**（必须按此顺序，组之间用空行分隔）：
-  1. 标准库导入（os, sys, re, json, time, datetime, pathlib, typing, collections 等）
-  2. 第三方库导入（yaml, tqdm, paramiko, openpyxl, playwright 等）
+  1. 标准库导入（os, sys, re, json, time, datetime, pathlib, typing, collections, dataclasses, enum, base64, subprocess, traceback, io, locale, socket, ipaddress, functools, itertools, platform, random, zipfile, concurrent, shutil, unicodedata, difflib 等）
+  2. 第三方库导入（yaml, tqdm, paramiko, openpyxl, xlsxwriter, requests, lxml, playwright, urllib3 等）
   3. 本地应用导入（v12 目录下的模块）
 - **导入分组之间必须有空行**（PEP 8 标准）
 - 示例：
@@ -64,9 +81,11 @@ from v12.TASK.TaskBase import BaseTask
 - ❌ 错误：`except:`
 
 ### 注释规范
-- **文件顶部**：必须有模块说明注释（使用 `#`）
+- **文件顶部**：必须有模块说明注释（使用 `#` 或 docstring）
 - **函数前**：公共函数前应有注释说明功能
-- **TODO/FIXME**：使用 `# TODO: ...` 或 `# FIXME: ...` 标记待办事项
+- **待办注释关键词**：`TODO`, `FIXME`, `XXX`, `HACK`, `NOTE`, `BUG`
+  - 使用格式：`# TODO: ...` 或 `# FIXME: ...`
+  - 提醒：待办注释应及时处理
 
 ### 代码示例
 
@@ -144,6 +163,8 @@ message = (
 
 ### 特殊约定
 - **目录命名**：全大写（如 `TASK`, `PATCH`），允许数字和下划线
+- **需要检查的目录**：`v12`
+- **忽略的目录**：`__pycache__`, `.git`, `node_modules`, `.pytest_cache`, `.mypy_cache`
 - **Patch 文件**：Patch 目录下的文件命名可以例外
 - **Main.py**：主入口文件可以例外
 
@@ -180,3 +201,8 @@ message = (
 
 这些规则与项目中的 `CodeStyleChecker.py` 工具完全一致。生成的代码应该能够通过该工具的检查。
 
+### 验证代码规范
+运行以下命令检查代码是否符合规范：
+```bash
+python CodeStyleChecker.py .
+```
