@@ -310,7 +310,7 @@ IOSXE_RANGE_HOST_SOURCE_REGULAR_EXPRESSION = re.compile(
     re.IGNORECASE | re.VERBOSE,
 )
 
-# IOS-XE格式 - 支持range端口（源IP+通配符，目的IP+通配符）
+# IOS-XE格式 - 支持range端口（源IP+通配符，目的IP+通配符）- range在中间
 # 示例: 4580 permit tcp 10.62.110.96 0.0.0.31 range 9091 9093 10.66.130.0 0.0.0.255
 # 示例: 640 permit tcp 10.10.0.0 0.0.255.255 range 8000 9999 10.104.166.0 0.0.0.255
 IOSXE_RANGE_WILDCARD_REGULAR_EXPRESSION = re.compile(
@@ -321,6 +321,37 @@ IOSXE_RANGE_WILDCARD_REGULAR_EXPRESSION = re.compile(
     (?P<SOURCE_IP>\d+\.\d+\.\d+\.\d+)\s+(?P<SOURCE_WILDCARD>\d+\.\d+\.\d+\.\d+)
     \s+range\s+(?P<PORT_RANGE_START>\d+)\s+(?P<PORT_RANGE_END>\d+)
     \s+(?P<DESTINATION_IP>\d+\.\d+\.\d+\.\d+)\s+(?P<DESTINATION_WILDCARD>\d+\.\d+\.\d+\.\d+)
+    (?:\s+(?:log|log-input|time-range\s+\S+|\S+))*\s*$
+    """,
+    re.IGNORECASE | re.VERBOSE,
+)
+
+# IOS-XE格式 - 支持range端口（源IP+通配符，目的host）- range在目的地址之后
+# 示例: 6100 permit tcp 10.6.130.0 0.0.0.255 host 10.12.11.171 range 3366 3369
+# 示例: 6140 permit tcp 10.6.130.0 0.0.0.255 host 10.13.11.25 range 3366 3369 log
+IOSXE_WILDCARD_HOST_RANGE_AFTER_REGULAR_EXPRESSION = re.compile(
+    r"""
+    ^\s*(?P<NUMBER>\d+)?\s*
+    (?P<ACTION>permit|deny)\s+
+    (?P<PROTOCOL>\S+)\s+
+    (?P<SOURCE_IP>\d+\.\d+\.\d+\.\d+)\s+(?P<SOURCE_WILDCARD>\d+\.\d+\.\d+\.\d+)
+    \s+host\s+(?P<DESTINATION_IP>\d+\.\d+\.\d+\.\d+)
+    \s+range\s+(?P<PORT_RANGE_START>\d+)\s+(?P<PORT_RANGE_END>\d+)
+    (?:\s+(?:log|log-input|time-range\s+\S+|\S+))*\s*$
+    """,
+    re.IGNORECASE | re.VERBOSE,
+)
+
+# IOS-XE格式 - 支持range端口（源IP+通配符，目的IP+通配符）- range在目的地址之后
+# 示例: permit tcp 10.6.130.0 0.0.0.255 10.12.11.0 0.0.0.255 range 3366 3369
+IOSXE_WILDCARD_WILDCARD_RANGE_AFTER_REGULAR_EXPRESSION = re.compile(
+    r"""
+    ^\s*(?P<NUMBER>\d+)?\s*
+    (?P<ACTION>permit|deny)\s+
+    (?P<PROTOCOL>\S+)\s+
+    (?P<SOURCE_IP>\d+\.\d+\.\d+\.\d+)\s+(?P<SOURCE_WILDCARD>\d+\.\d+\.\d+\.\d+)
+    \s+(?P<DESTINATION_IP>\d+\.\d+\.\d+\.\d+)\s+(?P<DESTINATION_WILDCARD>\d+\.\d+\.\d+\.\d+)
+    \s+range\s+(?P<PORT_RANGE_START>\d+)\s+(?P<PORT_RANGE_END>\d+)
     (?:\s+(?:log|log-input|time-range\s+\S+|\S+))*\s*$
     """,
     re.IGNORECASE | re.VERBOSE,
@@ -679,6 +710,57 @@ def parse_acl_full(ACL_LINE: str) -> Tuple[Optional[ACLRule], Optional[str]]:
                 "IOS-XE"
             ), None
         return None, "iosxe_range_host_src_network_parse_fail"
+
+
+    # 8.1 IOS-XE range格式（源IP+通配符，目的host）- range在目的地址之后
+    # 示例: 6100 permit tcp 10.6.130.0 0.0.0.255 host 10.12.11.171 range 3366 3369
+    MATCH_OUTCOME = IOSXE_WILDCARD_HOST_RANGE_AFTER_REGULAR_EXPRESSION.match(CLEANED_LINE)
+    if MATCH_OUTCOME:
+        SOURCE_NETWORK = ip_and_wildcard_to_network(
+            MATCH_OUTCOME.group("SOURCE_IP"),
+            MATCH_OUTCOME.group("SOURCE_WILDCARD")
+        )
+        DESTINATION_NETWORK = host_to_network(MATCH_OUTCOME.group("DESTINATION_IP"))
+        if SOURCE_NETWORK and DESTINATION_NETWORK:
+            return ACLRule(
+                CLEANED_LINE,
+                MATCH_OUTCOME.group("ACTION").lower(),
+                MATCH_OUTCOME.group("PROTOCOL").lower(),
+                SOURCE_NETWORK,
+                DESTINATION_NETWORK,
+                None,
+                None,
+                None,
+                "IOS-XE"
+            ), None
+        return None, "iosxe_wildcard_host_range_after_network_parse_fail"
+
+
+    # 8.2 IOS-XE range格式（源IP+通配符，目的IP+通配符）- range在目的地址之后
+    # 示例: permit tcp 10.6.130.0 0.0.0.255 10.12.11.0 0.0.0.255 range 3366 3369
+    MATCH_OUTCOME = IOSXE_WILDCARD_WILDCARD_RANGE_AFTER_REGULAR_EXPRESSION.match(CLEANED_LINE)
+    if MATCH_OUTCOME:
+        SOURCE_NETWORK = ip_and_wildcard_to_network(
+            MATCH_OUTCOME.group("SOURCE_IP"),
+            MATCH_OUTCOME.group("SOURCE_WILDCARD")
+        )
+        DESTINATION_NETWORK = ip_and_wildcard_to_network(
+            MATCH_OUTCOME.group("DESTINATION_IP"),
+            MATCH_OUTCOME.group("DESTINATION_WILDCARD")
+        )
+        if SOURCE_NETWORK and DESTINATION_NETWORK:
+            return ACLRule(
+                CLEANED_LINE,
+                MATCH_OUTCOME.group("ACTION").lower(),
+                MATCH_OUTCOME.group("PROTOCOL").lower(),
+                SOURCE_NETWORK,
+                DESTINATION_NETWORK,
+                None,
+                None,
+                None,
+                "IOS-XE"
+            ), None
+        return None, "iosxe_wildcard_wildcard_range_after_network_parse_fail"
 
 
     # 9. IOS-XE混合格式（host和wildcard混合）
